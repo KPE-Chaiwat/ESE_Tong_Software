@@ -1,0 +1,17 @@
+[package]
+name = "modbus-core"
+description = "Pure Modbus protocol (PDU/ADU encode/decode, CRC). No I/O, no async runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

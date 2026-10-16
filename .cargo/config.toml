@@ -1,0 +1,5 @@
+# ts-rs writes its bindings while running tests. Point every `cargo test` at the frontend
+# bindings folder so no stray `bindings/` directory appears inside the crate.
+# `scripts/gen-bindings.mjs` overrides this to generate into a temp dir in --check mode.
+[env]
+TS_RS_EXPORT_DIR = { value = "apps/desktop/src/shared/bindings", relative = true }

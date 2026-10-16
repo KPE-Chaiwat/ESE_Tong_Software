@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissions for the launcher and tool windows (least privilege: only the window APIs the frontend calls). Tool windows are labelled modbus-master-<n> by window_open_tool. App commands (mm_*, profiles_*, window_open_tool) need no capability entry.",
+  "windows": ["main", "modbus-master-*"],
+  "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-destroy"]
+}

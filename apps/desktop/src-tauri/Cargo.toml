@@ -1,0 +1,33 @@
+[package]
+name = "esefact-desktop"
+description = "ESEfact desktop shell (thin Tauri layer)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "esefact_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-fs.workspace = true
+tauri-plugin-store.workspace = true
+tauri-plugin-window-state.workspace = true
+serde.workspace = true
+shared-types.workspace = true
+platform.workspace = true
+modbus-master.workspace = true
+transport.workspace = true
+
+[dev-dependencies]
+serde_json = { workspace = true }

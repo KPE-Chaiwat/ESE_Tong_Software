@@ -1,0 +1,28 @@
+{
+  "name": "esefact",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ESEfact monorepo root. Scripts here are the single entry point for dev, build, checks and tests.",
+  "packageManager": "pnpm@10.34.6",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @esefact/desktop tauri dev",
+    "dev:web": "pnpm --filter @esefact/desktop dev:web",
+    "build": "pnpm --filter @esefact/desktop tauri build",
+    "build:web": "pnpm --filter @esefact/desktop build:web",
+    "bindings": "node scripts/gen-bindings.mjs",
+    "bindings:check": "node scripts/gen-bindings.mjs --check",
+    "typecheck": "pnpm --filter @esefact/desktop typecheck && pnpm --filter @esefact/e2e typecheck",
+    "lint": "pnpm lint:rust && pnpm lint:web",
+    "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
+    "lint:web": "pnpm --filter @esefact/desktop lint",
+    "test": "pnpm test:rust && pnpm test:web",
+    "test:rust": "cargo test --workspace",
+    "test:rust:nextest": "cargo nextest run --workspace",
+    "test:web": "pnpm --filter @esefact/desktop test",
+    "e2e": "pnpm --filter @esefact/e2e test",
+    "check": "pnpm bindings:check && pnpm typecheck && pnpm lint && pnpm test"
+  }
+}

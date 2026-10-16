@@ -1,0 +1,54 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/modbus-core",
+  "crates/transport",
+  "crates/modbus-master",
+  "crates/platform",
+  "crates/shared-types",
+  "apps/desktop/src-tauri",
+  # Dev-only test tool (Modbus TCP slave simulator for QA). Not a product crate, not bundled;
+  # no product crate may depend on it.
+  "crates/dev-sim-slave",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.92"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+# Internal crates (dependency direction: modbus-core <- transport <- modbus-master <- src-tauri)
+modbus-core = { path = "crates/modbus-core" }
+transport = { path = "crates/transport" }
+modbus-master = { path = "crates/modbus-master" }
+platform = { path = "crates/platform" }
+shared-types = { path = "crates/shared-types" }
+
+# External
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+ts-rs = "12"
+tauri = { version = "2", features = [] }
+tauri-build = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-store = "2"
+tauri-plugin-window-state = "2"
+tokio = { version = "1.47", features = ["rt", "macros", "sync", "time", "net", "io-util"] }
+tokio-serial = "5.5"
+async-trait = "0.1"
+dirs = "7"
+proptest = "1"
+tempfile = "3"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

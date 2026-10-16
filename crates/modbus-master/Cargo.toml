@@ -1,0 +1,23 @@
+[package]
+name = "modbus-master"
+description = "Modbus master session logic and polling engine. Depends on transport."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+modbus-core.workspace = true
+transport.workspace = true
+shared-types.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+transport = { workspace = true, features = ["test-support"] }
+tokio = { workspace = true, features = ["test-util", "rt-multi-thread"] }

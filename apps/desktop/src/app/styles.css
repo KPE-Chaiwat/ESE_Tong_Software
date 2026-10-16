@@ -1,0 +1,163 @@
+/* Fonts are bundled locally (no CDN): the app must work offline. */
+@import "@fontsource/afacad/latin-400.css";
+@import "@fontsource/afacad/latin-500.css";
+@import "@fontsource/afacad/latin-600.css";
+@import "@fontsource/afacad/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+@import "@fontsource/jetbrains-mono/latin-500.css";
+@import "@fontsource/jetbrains-mono/latin-700.css";
+
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Design tokens (DES-001 section 6.1). This file is the ONLY place where palette values are written.
+ * Exactly six hex values exist (checked by src/app/tokens.test.ts). Every other color is a mix of
+ * these six. Orange (--ese-orange) is reserved for WARNING only.
+ * Contrast rules (DES-001 6.2): never put text on a solid error fill; never use success, warning
+ * or accent as text or icon on a light surface.
+ */
+:root {
+  /* Raw palette: the six owner colors. */
+  --ese-dark: #312f2e;
+  --ese-light: #edeff2;
+  --ese-accent: #d7f26c;
+  --ese-warning: #fa8130;
+  --ese-success: #22c55e;
+  --ese-error: #ef4444;
+
+  /* Derived tokens: opacity mixes of the six colors, no new hex values. */
+  --ese-text-muted: color-mix(in oklab, var(--ese-dark) 75%, var(--ese-light));
+  --ese-border: color-mix(in srgb, var(--ese-dark) 15%, transparent);
+  --ese-neutral-tint: color-mix(in srgb, var(--ese-dark) 6%, transparent);
+  --ese-error-tint: color-mix(in srgb, var(--ese-error) 12%, transparent);
+  --ese-selected: color-mix(in srgb, var(--ese-accent) 35%, transparent);
+
+  /*
+   * Semantic names used by the shadcn/ui contract.
+   * --color-surface is intentionally not defined (owner decision pending, Q-001-11): cards use
+   * the light color plus a border.
+   */
+  --background: var(--ese-light);
+  --foreground: var(--ese-dark);
+  --card: var(--ese-light);
+  --card-foreground: var(--ese-dark);
+  --popover: var(--ese-light);
+  --popover-foreground: var(--ese-dark);
+  --primary: var(--ese-accent);
+  --primary-foreground: var(--ese-dark);
+  --secondary: var(--ese-dark);
+  --secondary-foreground: var(--ese-light);
+  --muted: var(--ese-neutral-tint);
+  --muted-foreground: var(--ese-text-muted);
+  --accent-foreground: var(--ese-dark);
+  --destructive: var(--ese-error);
+  /* DES-001 6.2: no text on a solid error fill, so the foreground is dark. */
+  --destructive-foreground: var(--ese-dark);
+  --border: var(--ese-border);
+  --input: color-mix(in srgb, var(--ese-dark) 25%, transparent);
+  --ring: var(--ese-dark);
+
+  /* Status tokens. Never use color alone: always pair with an icon or text. */
+  --success: var(--ese-success);
+  --success-foreground: var(--ese-dark);
+  --warning: var(--ese-warning);
+  --warning-foreground: var(--ese-dark);
+  --error: var(--ese-error);
+  /* DES-001 6.2: error is for icons, borders and outlines. Text on it is dark and sits on error-tint. */
+  --error-foreground: var(--ese-dark);
+
+  /* Dark contrast panels */
+  --panel: var(--ese-dark);
+  --panel-foreground: var(--ese-light);
+
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  /* DES-001 6.1 color tokens */
+  --color-dark: var(--ese-dark);
+  --color-light: var(--ese-light);
+  --color-accent: var(--ese-accent);
+  --color-warning: var(--ese-warning);
+  --color-success: var(--ese-success);
+  --color-error: var(--ese-error);
+  --color-text-muted: var(--ese-text-muted);
+  --color-border: var(--ese-border);
+  --color-neutral-tint: var(--ese-neutral-tint);
+  --color-error-tint: var(--ese-error-tint);
+  --color-selected: var(--ese-selected);
+
+  /* shadcn/ui contract names */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-error-foreground: var(--error-foreground);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+
+  /* DES-001 6.3 radii: inputs 8px, cards 12px, dialogs 16px, buttons and pills full. */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-pill: 9999px;
+
+  --font-sans: "Afacad", ui-sans-serif, system-ui, sans-serif;
+  /*
+   * Numbers, hex, register values and logs. This is the single place to change the data font
+   * (the owner has not decided between the bundled font and the system stack, Q-001-11).
+   * System stack alternative: "Cascadia Mono", Consolas, ui-monospace, monospace.
+   */
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* Focus rings (DES-001 7): dark ring on light surfaces, accent ring on dark panels. */
+@utility focus-ring {
+  &:focus-visible {
+    outline: 2px solid var(--ese-dark);
+    outline-offset: 2px;
+  }
+}
+
+@utility focus-ring-on-dark {
+  &:focus-visible {
+    outline: 2px solid var(--ese-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .animate-spin {
+      animation: none;
+    }
+  }
+}

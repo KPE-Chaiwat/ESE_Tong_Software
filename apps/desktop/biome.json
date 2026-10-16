@@ -1,0 +1,38 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true, "root": "../.." },
+  "files": {
+    "includes": [
+      "**",
+      "!src/shared/bindings",
+      "!dist",
+      "!src-tauri/target",
+      "!src-tauri/gen",
+      "!coverage"
+    ]
+  },
+  "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 2, "lineWidth": 100 },
+  "assist": { "actions": { "source": { "organizeImports": "on" } } },
+  "linter": { "enabled": true },
+  "overrides": [
+    {
+      "includes": [
+        "src/tools/modbus-master/components/data/DataTable.tsx",
+        "src/tools/modbus-master/components/traffic/TrafficPanel.tsx",
+        "src/tools/modbus-master/components/shell/Splitter.tsx",
+        "src/tools/modbus-master/components/ColumnResizeHandle.tsx",
+        "src/shared/ui/segmented.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off",
+            "useFocusableInteractive": "off"
+          }
+        }
+      }
+    }
+  ],
+  "javascript": { "formatter": { "quoteStyle": "double", "semicolons": "always" } },
+  "css": { "parser": { "tailwindDirectives": true } }
+}
