@@ -14,6 +14,8 @@ mod tests {
     fn app_info_reports_name_and_version() {
         let info = app_info();
         assert_eq!(info.name, "ESEfact");
+        // Single source: [workspace.package] version (see `pnpm version:check`).
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(!info.version.is_empty());
     }
 }

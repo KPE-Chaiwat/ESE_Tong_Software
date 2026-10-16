@@ -14,6 +14,8 @@
     "build:web": "pnpm --filter @esefact/desktop build:web",
     "bindings": "node scripts/gen-bindings.mjs",
     "bindings:check": "node scripts/gen-bindings.mjs --check",
+    "version:set": "node scripts/version.mjs set",
+    "version:check": "node scripts/version.mjs check",
     "typecheck": "pnpm --filter @esefact/desktop typecheck && pnpm --filter @esefact/e2e typecheck",
     "lint": "pnpm lint:rust && pnpm lint:web",
     "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
@@ -23,6 +25,6 @@
     "test:rust:nextest": "cargo nextest run --workspace",
     "test:web": "pnpm --filter @esefact/desktop test",
     "e2e": "pnpm --filter @esefact/e2e test",
-    "check": "pnpm bindings:check && pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm version:check && pnpm bindings:check && pnpm typecheck && pnpm lint && pnpm test"
   }
 }

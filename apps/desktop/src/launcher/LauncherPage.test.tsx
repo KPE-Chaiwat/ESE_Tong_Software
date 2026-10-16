@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
+import { createFakeWindowIpc } from "@/shared/ipc/window";
 import { modbusMasterManifest } from "@/tools/modbus-master/manifest";
 import { LauncherPage } from "./LauncherPage";
 
@@ -53,5 +54,32 @@ describe("LauncherPage", () => {
     expect(screen.getByRole("button", { name: /open/i })).toBeDisabled();
     finish();
     await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeEnabled());
+  });
+
+  it("shows the app version in the footer (fake IPC)", async () => {
+    const win = createFakeWindowIpc();
+    win.appInfo = { name: "ESEfact", version: "1.2.3" };
+    render(
+      <LauncherPage
+        manifests={[modbusMasterManifest]}
+        onOpen={vi.fn()}
+        loadAppInfo={win.getAppInfo}
+      />,
+    );
+    expect(await screen.findByTestId("app-version")).toHaveTextContent("ESEfact v1.2.3");
+  });
+
+  it("shows no version label when app_info fails, and the page still works", async () => {
+    const win = createFakeWindowIpc();
+    win.appInfoError = "no ipc";
+    render(
+      <LauncherPage
+        manifests={[modbusMasterManifest]}
+        onOpen={vi.fn()}
+        loadAppInfo={win.getAppInfo}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).toBeEnabled());
+    expect(screen.queryByTestId("app-version")).not.toBeInTheDocument();
   });
 });

@@ -1,6 +1,9 @@
 import { ArrowRight } from "lucide-react";
 import { useState } from "react";
+import type { AppInfo } from "@/shared/bindings";
+import { getAppInfo } from "@/shared/ipc";
 import type { ToolManifest } from "@/shared/lib/tool-manifest";
+import { AppVersion } from "@/shared/ui/app-version";
 import { Button } from "@/shared/ui/button";
 import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from "@/shared/ui/card";
 import { openTool } from "./open-tool";
@@ -9,6 +12,8 @@ interface LauncherPageProps {
   manifests: readonly ToolManifest[];
   /** Opens a tool in its own window. Defaults to `window_open_tool`; tests pass a fake. */
   onOpen?: (manifest: ToolManifest) => Promise<void>;
+  /** Reads the app version for the footer. Defaults to `app_info`; tests pass a fake. */
+  loadAppInfo?: () => Promise<AppInfo>;
 }
 
 interface ToolCardProps {
@@ -58,7 +63,11 @@ function ToolCard({ manifest, onOpen }: ToolCardProps) {
   );
 }
 
-export function LauncherPage({ manifests, onOpen = openTool }: LauncherPageProps) {
+export function LauncherPage({
+  manifests,
+  onOpen = openTool,
+  loadAppInfo = getAppInfo,
+}: LauncherPageProps) {
   return (
     <main className="mx-auto flex min-h-full max-w-5xl flex-col gap-8 p-8">
       <header>
@@ -70,6 +79,9 @@ export function LauncherPage({ manifests, onOpen = openTool }: LauncherPageProps
           <ToolCard key={manifest.id} manifest={manifest} onOpen={onOpen} />
         ))}
       </section>
+      <footer className="mt-auto">
+        <AppVersion load={loadAppInfo} className="text-muted-foreground" />
+      </footer>
     </main>
   );
 }

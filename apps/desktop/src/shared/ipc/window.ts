@@ -2,6 +2,7 @@
 // Only `shared/ipc` may import `@tauri-apps/api`.
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { AppInfo } from "@/shared/bindings";
 import { toIpcError, type Unsubscribe } from "./modbus-master";
 
 export type CloseDecision = "close" | "cancel";
@@ -12,6 +13,8 @@ export interface WindowIpc {
   onCloseRequested(handler: () => Promise<CloseDecision> | CloseDecision): Promise<Unsubscribe>;
   /** `window_open_tool`: opens a new window of the tool, in the idle state with defaults. */
   openToolWindow(toolId: string): Promise<void>;
+  /** `app_info`: name and version of the running app (shown as "ESEfact v0.1.0"). */
+  getAppInfo(): Promise<AppInfo>;
 }
 
 /**
@@ -36,6 +39,7 @@ export function createTauriWindowIpc(): WindowIpc {
       });
     },
     openToolWindow,
+    getAppInfo: async () => invoke<AppInfo>("app_info"),
   };
 }
 
@@ -45,6 +49,10 @@ export interface FakeWindowIpc extends WindowIpc {
   closed: boolean;
   /** When set, `openToolWindow` rejects with this message (for example "Unknown tool"). */
   openError: string | null;
+  /** What `getAppInfo` resolves to. */
+  appInfo: AppInfo;
+  /** When set, `getAppInfo` rejects with this message. */
+  appInfoError: string | null;
   /** Simulates the user closing the window. Resolves to true when the window actually closed. */
   requestClose(): Promise<boolean>;
 }
@@ -56,6 +64,8 @@ export function createFakeWindowIpc(): FakeWindowIpc {
     openedTools: [],
     closed: false,
     openError: null,
+    appInfo: { name: "ESEfact", version: "0.0.0-fake" },
+    appInfoError: null,
     async setTitle(title) {
       fake.titles.push(title);
     },
@@ -68,6 +78,10 @@ export function createFakeWindowIpc(): FakeWindowIpc {
     async openToolWindow(toolId) {
       if (fake.openError) throw new Error(fake.openError);
       fake.openedTools.push(toolId);
+    },
+    async getAppInfo() {
+      if (fake.appInfoError) throw new Error(fake.appInfoError);
+      return fake.appInfo;
     },
     async requestClose() {
       const decision = handler ? await handler() : "close";

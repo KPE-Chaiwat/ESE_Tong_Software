@@ -63,7 +63,9 @@ Optional, only to run Playwright later: `pnpm --filter @esefact/e2e install:brow
 | `pnpm bindings` | Regenerates `apps/desktop/src/shared/bindings/` from `crates/shared-types` (ts-rs). Never edit those files by hand. |
 | `pnpm bindings:check` | Regenerates into a temp folder and fails if the committed bindings are stale (CI). |
 | `pnpm e2e` | Playwright (no tests yet; passes when empty). |
-| `pnpm check` | bindings:check + typecheck + lint + test (what CI should run). |
+| `pnpm version:check` | Fails when the version differs between `Cargo.toml`, `Cargo.lock`, the three `package.json` files and `tauri.conf.json`, or `CHANGELOG.md` has no section for it. |
+| `pnpm version:set <x.y.z>` | Writes a new SemVer version into all of those files (see section 7). |
+| `pnpm check` | version:check + bindings:check + typecheck + lint + test (what CI should run). |
 | `pnpm --filter @esefact/desktop lint:fix` | Biome auto-fix and format. |
 
 ## 4. Dev tool: Modbus TCP slave simulator (`esefact-sim-slave`)
@@ -145,3 +147,31 @@ Columns: UTC time, epoch milliseconds (comparable with `TrafficFrame.at`), conne
 - `Cannot find module ...pnpm.cjs`: pnpm pin is too new for your Corepack; see the note above.
 - `ERR_PNPM_UNSUPPORTED_ENGINE`: Node is older than the dependency requires; upgrade Node (>= 22.19, the newest 22.x is recommended).
 - Port 1420 busy: close the other dev server (the port is fixed because Tauri expects it).
+
+## 7. Versioning and changelog
+
+ESEfact uses [Semantic Versioning](https://semver.org/) and keeps a [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) file, `CHANGELOG.md`, at the repository root. The version is `0.x` until the owner signs off a 1.0.0.
+
+### One version, one source
+The source of truth is `[workspace.package] version` in the root `Cargo.toml`. Every crate inherits it (`version.workspace = true`). The same number is kept in `package.json`, `apps/desktop/package.json`, `e2e/package.json`, `apps/desktop/src-tauri/tauri.conf.json` (installer and product metadata) and in the workspace entries of `Cargo.lock`. The running app reports it through the `app_info` command and shows "ESEfact v{version}" in the launcher footer and the Modbus Master status bar. Do not edit these places by hand; use the script (plain Node, no dependencies, works offline):
+
+```powershell
+pnpm version:set 0.2.0     # writes the version everywhere, Cargo.lock included
+pnpm version:check         # fails (exit 1) and lists every file that disagrees; part of `pnpm check`
+```
+
+`version:check` also requires `CHANGELOG.md` to contain `## [Unreleased]` and a `## [<current version>]` section, so a bump without a changelog section fails.
+
+### Release procedure
+1. Make sure `## [Unreleased]` lists everything that changed since the last release.
+2. Choose the number: patch (`0.1.1`) for fixes only, minor (`0.2.0`) for new features, major once 1.0.0 is released and a change breaks users (before 1.0.0 a minor bump may include breaking changes; say so under **Changed**). A profile or data format change that old versions cannot read counts as breaking.
+3. `pnpm version:set <x.y.z>`.
+4. In `CHANGELOG.md` rename the `Unreleased` entries into a new `## [x.y.z] - YYYY-MM-DD` section directly under a fresh, empty `## [Unreleased]` heading.
+5. `pnpm check` (runs `version:check`, bindings, typecheck, lint and all tests), then commit "chore(release): vX.Y.Z" and tag `vX.Y.Z`. The tag and the compare links at the bottom of `CHANGELOG.md` (`[Unreleased]: <remote>/compare/vX.Y.Z...HEAD`) can only be added once the repository has a remote; there is none yet.
+6. `pnpm build` creates the NSIS installer; its file name and product version come from `tauri.conf.json`. Only NSIS is a target; a pre-release suffix such as `0.2.0-rc.1` is accepted by `version:set`, but check the installer name before shipping one. Signing is not configured in the repo.
+
+### Writing entries
+- Group lines under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed` or `### Security` (only the groups that apply). Use `### Planned` under Unreleased only for approved but unstarted requirements; remove it when the work is done and write real entries instead.
+- Write for the user of the app, in English, one line per change, present tense or past participle ("Write dialog shows ..."), and name the requirement id (REQ-nnn) when there is one. Do not paste commit messages.
+- Test-only and build-only changes go under a `### Development` note of that release, not under Added.
+- **Rule: every user-visible change adds a line to `## [Unreleased]` in the same change** (same commit or pull request). Reviewers reject user-visible changes without it. Do not write a claim in the changelog that the docs or tests do not verify.

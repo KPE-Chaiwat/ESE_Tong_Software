@@ -1,11 +1,13 @@
+import { AppVersion } from "@/shared/ui/app-version";
 import { formatTime } from "../../lib/format";
 import { isLinkUp } from "../../store/session.logic";
-import { useConfig, usePollData, useSession } from "../context";
+import { useConfig, usePollData, useRuntime, useSession } from "../context";
 
 const PARITY_LETTER = { none: "N", even: "E", odd: "O" } as const;
 
 /** Dark 24px bar: connection summary, last good response and round trip. Not focusable. */
 export function StatusBar() {
+  const { windowIpc } = useRuntime();
   const state = useSession((s) => s.state);
   const connection = useConfig((s) => s.connection);
   const lastOkAt = usePollData((s) => s.lastOkAt);
@@ -29,6 +31,7 @@ export function StatusBar() {
         Round trip{" "}
         <span className="font-mono">{roundTripMs === null ? "—" : `${roundTripMs} ms`}</span>
       </span>
+      <AppVersion load={windowIpc.getAppInfo} className="ml-auto opacity-70" />
     </footer>
   );
 }

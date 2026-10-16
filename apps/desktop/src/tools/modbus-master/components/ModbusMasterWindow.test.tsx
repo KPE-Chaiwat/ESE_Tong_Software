@@ -25,6 +25,14 @@ describe("window shell (task 08)", () => {
     await waitFor(() => expect(h.win.titles.at(-1)).toBe(document.title));
   });
 
+  it("shows the app version at the right end of the status bar", async () => {
+    h = await renderWindow();
+    expect(await screen.findByTestId("app-version")).toHaveTextContent(
+      `ESEfact v${h.win.appInfo.version}`,
+    );
+    expect(screen.getByRole("contentinfo")).toContainElement(screen.getByTestId("app-version"));
+  });
+
   it("Ctrl+\\ hides and shows the setup panel", async () => {
     h = await renderWindow();
     ctrl("\\");

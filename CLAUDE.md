@@ -66,3 +66,7 @@ Always read the upstream document before starting. If it is ambiguous, write the
 - Backend: `cargo clippy -D warnings`, `cargo nextest` passing, protocol code covered by test vectors.
 - QA: Playwright run recorded in a REPORT, every checklist item marked pass/fail.
 - Reviewer: no unresolved blocker.
+
+## Changelog
+- `CHANGELOG.md` (Keep a Changelog, SemVer) is updated in the same change as every user-visible change: add a line under `## [Unreleased]`.
+- The version has one source (`[workspace.package]` in the root `Cargo.toml`); change it only with `pnpm version:set <x.y.z>`. `pnpm version:check` is part of `pnpm check`. See `docs/SETUP.md` section 7.
