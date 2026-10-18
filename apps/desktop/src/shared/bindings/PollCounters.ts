@@ -6,17 +6,17 @@ import type { PollId } from "./PollId";
  * Counters of one poll plus its timing. Payload of `PollCounters` (view channel) and an
  * entry of `ConnectionCounters.polls`.
  */
-export type PollCounters = { pollId: PollId, 
+export type PollCounters = { pollId: PollId,
 /**
  * This poll's requests only (writes are never counted here).
  */
-counters: Counters, 
+counters: Counters,
 /**
  * Mean interval between the starts of the last (up to) 10 cycles, once at least two
  * cycles ran since the poll (re)started; else null. The UI shows it when it exceeds
  * 1.5 x the scan rate (DES-002 2.3.2).
  */
-effectiveScanMs: number | null, 
+effectiveScanMs: number | null,
 /**
  * Time of the last valid reply of the current definition, null when there is none.
  */

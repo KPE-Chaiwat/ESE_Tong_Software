@@ -13,6 +13,7 @@ import type {
   ValueColumns,
 } from "@/shared/ipc/modbus-master.types";
 import type { AddressRange } from "../lib/address-ranges";
+import { isCombinedFormat } from "../lib/combined";
 import { overrideRangesMessage } from "../lib/scale-validation";
 import { effectiveValueColumns, scaleActive, scaleAvailable } from "../lib/scaled";
 import {
@@ -151,6 +152,7 @@ export function createPollScaleStore(deps: PollScaleDeps): PollScaleStoreApi {
       async setValueColumns(columns) {
         const config = deps.getConfig();
         if (!config || config.valueColumns === columns) return true;
+        if (isCombinedFormat(config.display.format)) return true;
         return send({ valueColumns: columns });
       },
 

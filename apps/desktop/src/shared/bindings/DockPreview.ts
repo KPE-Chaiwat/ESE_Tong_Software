@@ -5,11 +5,11 @@ import type { PollId } from "./PollId";
 /**
  * Payload of `DockPreview`. **Phase 2: defined but never sent yet.**
  */
-export type DockPreview = { 
+export type DockPreview = {
 /**
  * Null hides the preview.
  */
-pollId: PollId | null, 
+pollId: PollId | null,
 /**
  * Cursor in W1 client coordinates.
  */

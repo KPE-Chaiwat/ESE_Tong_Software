@@ -62,8 +62,7 @@ export function useShortcuts(): void {
       { combo: "ctrl+shift+p", run: () => void actions.togglePauseAll() },
       { combo: "ctrl+j", run: () => actions.toggleTraffic() },
       { combo: "ctrl+shift+k", run: () => actions.clearTraffic() },
-      { combo: "ctrl+shift+t", run: () => workspace.getState().tile() },
-      { combo: "ctrl+shift+c", run: () => workspace.getState().cascade() },
+      { combo: "ctrl+shift+t", run: () => workspace.getState().resetGrid() },
       { combo: "ctrl+f6", run: () => workspace.getState().cycle(1) },
       { combo: "ctrl+shift+f6", run: () => workspace.getState().cycle(-1) },
       {

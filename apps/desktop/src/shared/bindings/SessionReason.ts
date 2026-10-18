@@ -2,7 +2,7 @@
 import type { ReasonKind } from "./ReasonKind";
 import type { ReasonPhase } from "./ReasonPhase";
 
-export type SessionReason = { kind: ReasonKind, phase: ReasonPhase, 
+export type SessionReason = { kind: ReasonKind, phase: ReasonPhase,
 /**
  * Technical detail in English (OS error text). The UI builds its own banner text.
  */

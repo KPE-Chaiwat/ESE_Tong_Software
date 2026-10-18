@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+﻿import { vi } from "vitest";
 import type { PollConfig, ScaleOverride } from "@/shared/ipc/modbus-master.types";
 import { presetDefaults } from "../lib/scale-presets";
 import {
@@ -21,7 +21,15 @@ function configOf(patch: Partial<PollConfig> = {}): PollConfig {
     name: "Tank 1",
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
     active: true,
-    display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+    display: {
+      format: "unsigned",
+      addressBase: 0,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
+    colorRules: [],
     scale: null,
     scaleOverrides: [],
     valueColumns: "raw",

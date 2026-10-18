@@ -22,15 +22,8 @@ fn on_destroyed(app: &AppHandle, label: &str) {
     let Some(state) = app.try_state::<state::AppState>() else {
         return;
     };
-    if let Some((connection, poll_id)) = windows::parse_poll_window_label(label) {
-        if app.get_webview_window(label).is_some() {
-            return;
-        }
-        if let Ok(session) = state.session(connection) {
-            tauri::async_runtime::spawn(async move {
-                let _ = session.native_window_destroyed(poll_id).await;
-            });
-        }
+    if windows::parse_poll_window_label(label).is_some() {
+        // Each native window registers its own incarnation-aware destruction callback.
         return;
     }
     if state.remove_session(label) {
@@ -117,6 +110,11 @@ pub fn run() {
             commands::modbus_master::mm_set_auto_start_poll,
             commands::modbus_master::mm_add_poll,
             commands::modbus_master::mm_duplicate_poll,
+            commands::poll_bulk::mm_prepare_poll_bulk,
+            commands::poll_bulk::mm_duplicate_polls,
+            commands::poll_bulk::mm_remove_polls,
+            commands::poll_bulk::mm_ack_poll_bulk_ready,
+            commands::poll_bulk::mm_recover_poll_bulk_windows,
             commands::modbus_master::mm_remove_poll,
             commands::modbus_master::mm_update_poll,
             commands::modbus_master::mm_rename_poll,

@@ -147,7 +147,7 @@ describe("W1 with the Thai layout", () => {
   // REPORT-008 D8b: the physical Backslash key, whatever key the layout reports.
   it("Ctrl with key + on code Backslash (Thai hardware) collapses the sidebar, Ctrl+Shift with ฅ is compact mode", async () => {
     await connected();
-    (screen.getByRole("listbox") as HTMLElement).focus();
+    (document.querySelector("[data-poll-show]") as HTMLElement).focus();
     expect(press("+", "Backslash", { ctrl: true })).toBe(true);
     expect(h.rt.stores.workspace.getState().sidebar.collapsed).toBe(true);
     press("ฅ", "Backslash", { ctrl: true, shift: true });
@@ -170,17 +170,17 @@ describe("W1 with the Thai layout", () => {
 
   it("AltGr on the Backslash key, Ctrl+Alt, and the German AltGr+ss do nothing", async () => {
     await connected();
-    (screen.getByRole("listbox") as HTMLElement).focus();
+    (document.querySelector("[data-poll-show]") as HTMLElement).focus();
     expect(press("+", "Backslash", { ctrl: true, alt: true })).toBe(false);
     expect(press("\\", "Minus", { ctrl: true, alt: true })).toBe(false);
     expect(h.rt.stores.workspace.getState().sidebar.collapsed).toBe(false);
     expect(h.ipc.callsOf("setCompactMode")).toEqual([]);
   });
 
-  it("Ctrl+Shift+T tiles, Ctrl+Shift+C cascades, Ctrl+Shift+O pops out, F6 cycles the regions", async () => {
+  it("Ctrl+Shift+T resets the grid, Ctrl+Shift+O pops out, F6 cycles the regions", async () => {
     const { a } = await connected();
     thai("KeyT", { ctrl: true, shift: true });
-    expect(h.rt.stores.workspace.getState().tileMode).toBe(true);
+    expect(h.rt.stores.workspace.getState().items[a]?.grid).toMatchObject({ x: 0, y: 0 });
     thai("KeyC", { ctrl: true, shift: true });
     expect(h.rt.stores.workspace.getState().tileMode).toBe(false);
     h.rt.stores.pollList.getState().select(a);
@@ -215,7 +215,7 @@ describe("W1 with the Thai layout", () => {
 
   it("Ctrl+C on a sidebar row copies the poll", async () => {
     await connected();
-    const row = screen.getAllByRole("option")[0] as HTMLElement;
+    const row = document.querySelector("[data-poll-show]") as HTMLElement;
     row.focus();
     thai("KeyC", { ctrl: true });
     await waitFor(() => expect(h.copied.length).toBeGreaterThan(0));

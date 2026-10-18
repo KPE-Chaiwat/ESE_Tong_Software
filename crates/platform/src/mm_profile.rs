@@ -1,20 +1,13 @@
-//! Modbus Master profile schema (DES-002 section 6): reading schema 1 and 2, migrating
-//! 1 -> 2, validating, and the JSON written on save.
-//!
-//! - Schema 1 (BE-001, one poll) is migrated on read and returned with `migratedFrom: 1`;
-//!   the file stays version 1 until it is saved.
-//! - Schema 2 is validated on read and on save. A file that fails is "damaged"
-//!   (`invalidProfile`, listed with `readable: false`).
-//! - Schema 3 or higher is rejected by the store (`unsupportedSchema`).
-//! - Checks are cheap shape checks (BE-001 permissive draft rule): the connection is not
-//!   validated here; poll definitions only for `function` 1-4 (full validation happens when
-//!   the profile is applied to a connection).
+//! Modbus Master profile schema 5: explicit migration from schemas 1–4,
+//! validation, and canonical JSON written only on Save. Reading never rewrites a file.
+//! The store rejects newer schemas; malformed supported documents are invalidProfile.
+//! Connection drafts remain permissive, while all persisted view settings are checked.
 
 use serde_json::Value;
 use shared_types::{
     check_aliases, check_display, check_poll_name, check_scale, check_scale_overrides,
     same_poll_name, DisplaySettings, PollHostKind, PollProfile, PollViewPlacement, Profile,
-    ProfileV1, ValueColumns, WorkspaceProfile, MAX_POLLS, PROFILE_SCHEMA_VERSION,
+    ProfileV1, ProfileV2, ValueColumns, WorkspaceProfile, MAX_POLLS, PROFILE_SCHEMA_VERSION,
 };
 
 /// Tool id of Modbus Master profiles.
@@ -56,11 +49,14 @@ pub fn migrate_v1(v1: ProfileV1) -> Profile {
             definition: v1.poll,
             active: true,
             display: DisplaySettings {
-                format: v1.display.format,
+                format: v1.display.format.into(),
+                swap_bytes: false,
+                reverse_words: false,
                 address_base: v1.display.address_base,
                 show_alias: true,
                 copy_alias: false,
             },
+            color_rules: Vec::new(),
             scale: None,
             scale_overrides: Vec::new(),
             value_columns: ValueColumns::Raw,
@@ -77,7 +73,7 @@ pub fn migrate_v1(v1: ProfileV1) -> Profile {
 }
 
 /// Decodes a stored document (store hook for `get_with` / `list_with`): schema 1 is
-/// migrated, schema 2 parsed; both are checked.
+/// migrated, schemas 3 through 5 parsed; every resulting configuration is checked.
 ///
 /// # Errors
 /// Why the document cannot be opened.
@@ -86,16 +82,21 @@ pub fn decode_profile(value: Value) -> Result<Profile, String> {
         .get("schemaVersion")
         .and_then(Value::as_u64)
         .ok_or("missing schemaVersion")?;
-    let profile = match version {
+    let mut profile = match version {
         1 => migrate_v1(serde_json::from_value(value).map_err(|e| e.to_string())?),
-        2 => {
+        2 => migrate_v2(serde_json::from_value(value).map_err(|e| e.to_string())?),
+        3..=5 => {
             let mut p: Profile = serde_json::from_value(value).map_err(|e| e.to_string())?;
-            p.migrated_from = None;
+            p.migrated_from = (version < PROFILE_SCHEMA_VERSION as u64).then_some(version as u32);
+            p.schema_version = PROFILE_SCHEMA_VERSION;
             p
         }
         other => return Err(format!("unknown profile version {other}")),
     };
     check_profile(&profile).map_err(|p| p.message)?;
+    for poll in &mut profile.polls {
+        shared_types::normalize_color_rules(&mut poll.color_rules);
+    }
     Ok(profile)
 }
 
@@ -104,7 +105,12 @@ pub fn decode_profile(value: Value) -> Result<Profile, String> {
 /// # Errors
 /// Serialization failures (none expected).
 pub fn encode_profile(profile: &Profile) -> Result<Value, String> {
-    let mut value = serde_json::to_value(profile).map_err(|e| e.to_string())?;
+    check_profile(profile).map_err(|p| p.message)?;
+    let mut profile = profile.clone();
+    for poll in &mut profile.polls {
+        shared_types::normalize_color_rules(&mut poll.color_rules);
+    }
+    let mut value = serde_json::to_value(&profile).map_err(|e| e.to_string())?;
     if let Some(obj) = value.as_object_mut() {
         obj.remove("migratedFrom");
         obj.insert("schemaVersion".into(), Value::from(PROFILE_SCHEMA_VERSION));
@@ -112,12 +118,15 @@ pub fn encode_profile(profile: &Profile) -> Result<Value, String> {
     Ok(value)
 }
 
-/// Checks a schema 2 profile: at most 16 polls, valid and unique poll names, function
+/// Checks a schema 3 profile: at most 16 polls, valid and unique poll names, function
 /// 1-4, address base 0/1, alias lists, scale shapes, and `minimizedOrder` indexes.
 ///
 /// # Errors
 /// The first problem.
 pub fn check_profile(profile: &Profile) -> Result<(), ProfileProblem> {
+    if profile.schema_version != PROFILE_SCHEMA_VERSION {
+        return Err(problem("schemaVersion", "Unsupported profile schema."));
+    }
     if profile.polls.len() > MAX_POLLS {
         return Err(problem(
             "polls",
@@ -143,6 +152,8 @@ pub fn check_profile(profile: &Profile) -> Result<(), ProfileProblem> {
             )));
         }
         check_display(&p.display).map_err(at)?;
+        shared_types::check_color_rules(&p.color_rules, p.display.format)
+            .map_err(|e| at(format!("{}: {}", e.field, e.message)))?;
         check_aliases(&p.aliases).map_err(at)?;
         if let Some(s) = &p.scale {
             check_scale(s).map_err(at)?;
@@ -160,6 +171,43 @@ pub fn check_profile(profile: &Profile) -> Result<(), ProfileProblem> {
         }
     }
     Ok(())
+}
+
+/// Upgrade schema 2 without changing any existing setting.
+#[must_use]
+pub fn migrate_v2(v2: ProfileV2) -> Profile {
+    Profile {
+        schema_version: PROFILE_SCHEMA_VERSION,
+        name: v2.name,
+        connection: v2.connection,
+        auto_start_poll: v2.auto_start_poll,
+        connection_window: v2.connection_window,
+        workspace: v2.workspace,
+        polls: v2
+            .polls
+            .into_iter()
+            .map(|p| PollProfile {
+                name: p.name,
+                definition: p.definition,
+                active: p.active,
+                display: DisplaySettings {
+                    format: p.display.format.into(),
+                    address_base: p.display.address_base,
+                    show_alias: p.display.show_alias,
+                    copy_alias: p.display.copy_alias,
+                    swap_bytes: false,
+                    reverse_words: false,
+                },
+                color_rules: Vec::new(),
+                scale: p.scale,
+                scale_overrides: p.scale_overrides,
+                value_columns: p.value_columns,
+                aliases: p.aliases,
+                view: p.view,
+            })
+            .collect(),
+        migrated_from: Some(2),
+    }
 }
 
 #[cfg(test)]
@@ -188,7 +236,7 @@ mod tests {
   "autoStartPoll": false
 }"#;
 
-    const V3: &str = r#"{"schemaVersion": 3, "name": "Future", "polls": [], "something": true}"#;
+    const V6: &str = r#"{"schemaVersion": 6, "name": "Future", "polls": [], "something": true}"#;
 
     fn v2_value() -> Value {
         json!({
@@ -218,7 +266,7 @@ mod tests {
     fn v1_tcp_and_rtu_files_migrate_without_data_loss() {
         let p = decode_profile(serde_json::from_str(V1_TCP).unwrap()).unwrap();
         assert_eq!(p.migrated_from, Some(1));
-        assert_eq!(p.schema_version, 2);
+        assert_eq!(p.schema_version, 5);
         assert_eq!(p.name, "Boiler-PLC");
         assert!(p.auto_start_poll);
         assert_eq!(p.connection.summary(), "TCP 192.168.1.10:502");
@@ -250,7 +298,7 @@ mod tests {
     #[test]
     fn v2_round_trips_and_encoding_drops_migrated_from() {
         let p = decode_profile(v2_value()).unwrap();
-        assert_eq!(p.migrated_from, None);
+        assert_eq!(p.migrated_from, Some(2));
         assert_eq!(
             p.polls[1].view.native.as_ref().unwrap().monitor,
             "\\\\.\\DISPLAY2"
@@ -259,8 +307,100 @@ mod tests {
         migrated.migrated_from = Some(1);
         let v = encode_profile(&migrated).unwrap();
         assert!(v.get("migratedFrom").is_none());
-        assert_eq!(v["schemaVersion"], 2);
-        assert_eq!(decode_profile(v).unwrap(), p);
+        assert_eq!(v["schemaVersion"], 5);
+        let mut expected = p;
+        expected.migrated_from = None;
+        assert_eq!(decode_profile(v).unwrap(), expected);
+    }
+
+    #[test]
+    fn schemas_three_and_four_migrate_to_five_without_losing_poll_settings() {
+        let original = decode_profile(v2_value()).unwrap();
+        for version in [3, 4] {
+            let mut legacy = encode_profile(&original).unwrap();
+            legacy["schemaVersion"] = json!(version);
+            let migrated = decode_profile(legacy).unwrap();
+            assert_eq!(migrated.schema_version, 5);
+            assert_eq!(migrated.migrated_from, Some(version));
+            assert_eq!(migrated.polls, original.polls);
+            assert_eq!(migrated.workspace, original.workspace);
+        }
+    }
+
+    #[test]
+    fn legacy_formats_are_closed_and_schema3_requires_new_fields() {
+        for format in ["unsigned", "signed", "hex", "binary"] {
+            let mut v1: Value = serde_json::from_str(V1_TCP).unwrap();
+            v1["display"]["format"] = json!(format);
+            let migrated = decode_profile(v1).unwrap();
+            assert_eq!(
+                serde_json::to_value(migrated.polls[0].display.format).unwrap(),
+                json!(format)
+            );
+            assert!(!migrated.polls[0].display.swap_bytes);
+            assert!(migrated.polls[0].color_rules.is_empty());
+        }
+        let mut legacy = v2_value();
+        legacy["polls"][0]["display"]["format"] = json!("unsigned64");
+        assert!(decode_profile(legacy).is_err());
+        let current = encode_profile(&decode_profile(v2_value()).unwrap()).unwrap();
+        for format in [
+            "unsigned",
+            "signed",
+            "hex",
+            "binary",
+            "signed32",
+            "unsigned32",
+            "float32",
+            "signed64",
+            "unsigned64",
+            "float64",
+        ] {
+            for swap in [false, true] {
+                for reverse in [false, true] {
+                    let mut v = current.clone();
+                    v["polls"][0]["display"]["format"] = json!(format);
+                    v["polls"][0]["display"]["swapBytes"] = json!(swap);
+                    v["polls"][0]["display"]["reverseWords"] = json!(reverse);
+                    assert_eq!(
+                        encode_profile(&decode_profile(v.clone()).unwrap()).unwrap(),
+                        v
+                    );
+                }
+            }
+        }
+        for key in ["swapBytes", "reverseWords", "format"] {
+            let mut bad = current.clone();
+            bad["polls"][0]["display"]
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(decode_profile(bad).is_err());
+        }
+        let mut bad = current.clone();
+        bad["polls"][1]
+            .as_object_mut()
+            .unwrap()
+            .remove("colorRules");
+        assert!(decode_profile(bad).is_err());
+        let mut bad = current.clone();
+        bad["polls"][0]["display"]["swapBytes"] = json!(1);
+        assert!(decode_profile(bad).is_err());
+        for version in [
+            json!(0),
+            json!(-1),
+            json!(1.5),
+            json!("3"),
+            json!(null),
+            json!(6),
+        ] {
+            let mut bad = current.clone();
+            bad["schemaVersion"] = version;
+            assert!(decode_profile(bad).is_err());
+        }
+        let mut profile = decode_profile(current).unwrap();
+        profile.schema_version = 6;
+        assert!(encode_profile(&profile).is_err());
     }
 
     type Mutation = Box<dyn Fn(&mut Value)>;
@@ -350,7 +490,7 @@ mod tests {
         let dir = store.root().join(MODBUS_MASTER_TOOL_ID);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("Boiler-PLC.json"), V1_TCP).unwrap();
-        std::fs::write(dir.join("Future.json"), V3).unwrap();
+        std::fs::write(dir.join("Future.json"), V6).unwrap();
         let mut damaged = v2_value();
         damaged["workspace"]["minimizedOrder"] = json!([9]);
         std::fs::write(dir.join("Damaged.json"), damaged.to_string()).unwrap();
@@ -369,8 +509,8 @@ mod tests {
         assert!(matches!(
             store.get_with(MODBUS_MASTER_TOOL_ID, "future", decode_profile),
             Err(crate::ProfileError::UnsupportedSchema {
-                found: 3,
-                supported: 2,
+                found: 6,
+                supported: 5,
                 ..
             })
         ));
@@ -387,7 +527,7 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(dir.join("Boiler-PLC.json")).unwrap())
                 .unwrap();
         assert_eq!(on_disk["schemaVersion"], 1);
-        // Saving writes schema 2 without migratedFrom; it then reads back unchanged.
+        // Saving writes schema 3 without migratedFrom; it then reads back unchanged.
         store
             .save(
                 MODBUS_MASTER_TOOL_ID,
@@ -399,7 +539,7 @@ mod tests {
         let on_disk: Value =
             serde_json::from_str(&std::fs::read_to_string(dir.join("Boiler-PLC.json")).unwrap())
                 .unwrap();
-        assert_eq!(on_disk["schemaVersion"], 2);
+        assert_eq!(on_disk["schemaVersion"], 5);
         assert!(on_disk.get("migratedFrom").is_none());
         let again = store
             .get_with(MODBUS_MASTER_TOOL_ID, "Boiler-PLC", decode_profile)

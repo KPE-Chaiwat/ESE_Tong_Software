@@ -5,27 +5,27 @@ import type { WindowPlacement } from "./WindowPlacement";
 import type { WorkspaceProfile } from "./WorkspaceProfile";
 
 /**
- * A saved Modbus Master setup, schema 2.
+ * A saved Modbus Master setup, schema 3.
  */
-export type Profile = { 
+export type Profile = {
 /**
- * 2. Set by the backend on save.
+ * 3. Checked by the backend on save.
  */
-schemaVersion: number, 
+schemaVersion: number,
 /**
  * Max 64 characters, none of `\ / : * ? " < > |`. Unique per tool, case-insensitive.
  */
-name: string, connection: ConnectionConfig, autoStartPoll: boolean, 
+name: string, connection: ConnectionConfig, autoStartPoll: boolean,
 /**
  * The connection window placement, if known.
  */
-connectionWindow: WindowPlacement | null, workspace: WorkspaceProfile, 
+connectionWindow: WindowPlacement | null, workspace: WorkspaceProfile,
 /**
  * 0-16 polls in list order (also the tile order).
  */
-polls: Array<PollProfile>, 
+polls: Array<PollProfile>,
 /**
- * Set by `profiles_get` when the file had an older schema (1); the file stays as it
+ * Set by `profiles_get` when the file had an older schema (1 or 2); the file stays as it
  * is until saved. Ignored by `profiles_save` and never written.
  */
 migratedFrom: number | null, };

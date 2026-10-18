@@ -8,19 +8,19 @@ import type { WorkspaceRect } from "./WorkspaceRect";
 /**
  * One poll as listed in W1 (`PollListChanged`, snapshots).
  */
-export type PollSummary = { config: PollConfig, status: PollStatus, counters: PollCounters, 
+export type PollSummary = { config: PollConfig, status: PollStatus, counters: PollCounters,
 /**
  * Last host kind.
  */
-host: PollHostKind, 
+host: PollHostKind,
 /**
  * False = view closed (kept).
  */
-open: boolean, 
+open: boolean,
 /**
  * Last workspace rectangle (with sub-window state), null = next slot.
  */
-workspace: WorkspaceRect | null, 
+workspace: WorkspaceRect | null,
 /**
  * Reported by the poll's view through `mm_set_poll_view`; cleared by Close -> Keep.
  */

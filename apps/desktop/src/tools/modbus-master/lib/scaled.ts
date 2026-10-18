@@ -3,6 +3,7 @@
 // back. `createScaled` is the real provider; tests and tools can pass their own factory through the
 // runtime's `createScaled` dependency.
 import type { PollConfig } from "@/shared/ipc/modbus-master.types";
+import { isCombinedFormat } from "./combined";
 import { isBitFunction } from "./functions";
 import { effectiveScale, formatResult, type ScaleResult, scaleKey, scaleValue } from "./scale-math";
 import { overrideMarkerText } from "./scale-presets";
@@ -13,6 +14,7 @@ export type ScaledMarker = "none" | "outOfRange" | "clamped-low" | "clamped-high
 export interface ScaledCell {
   /** The number as shown and copied: dot, fixed decimals, no unit ("4.00"). */
   text: string;
+  numeric?: number;
   /** The unit shown after the number in muted text; "" for none. */
   unit: string;
   marker: ScaledMarker;
@@ -51,13 +53,19 @@ export function hasAnyScale(config: Pick<PollConfig, "scale" | "scaleOverrides">
  * Scaling is active for registers only (FC03 and FC04). A scale saved on a coil or discrete poll is
  * kept and ignored (DES-003 1.5).
  */
-export function scaleActive(config: Pick<PollConfig, "definition">): boolean {
-  return !isBitFunction(config.definition.function);
+export function scaleActive(
+  config: Pick<PollConfig, "definition"> & Partial<Pick<PollConfig, "display">>,
+): boolean {
+  return (
+    !isBitFunction(config.definition.function) &&
+    !isCombinedFormat(config.display?.format ?? "unsigned")
+  );
 }
 
 /** The Scaled column and the Show control can be used: a scale exists and the poll reads registers. */
 export function scaleAvailable(
-  config: Pick<PollConfig, "scale" | "scaleOverrides" | "definition">,
+  config: Pick<PollConfig, "scale" | "scaleOverrides" | "definition"> &
+    Partial<Pick<PollConfig, "display">>,
 ): boolean {
   return scaleActive(config) && hasAnyScale(config);
 }
@@ -68,7 +76,8 @@ export function scaleAvailable(
  * no scale would hide every value (REV-007 m-3). The stored setting is left as it is.
  */
 export function effectiveValueColumns(
-  config: Pick<PollConfig, "scale" | "scaleOverrides" | "definition" | "valueColumns">,
+  config: Pick<PollConfig, "scale" | "scaleOverrides" | "definition" | "valueColumns"> &
+    Partial<Pick<PollConfig, "display">>,
 ): PollConfig["valueColumns"] {
   return scaleAvailable(config) ? config.valueColumns : "raw";
 }
@@ -95,6 +104,7 @@ function cellOf(
   const value = scale.unit === "" ? text : `${text} ${scale.unit}`;
   return {
     text,
+    numeric: result.y,
     unit: scale.unit,
     marker: flag
       ? "outOfRange"

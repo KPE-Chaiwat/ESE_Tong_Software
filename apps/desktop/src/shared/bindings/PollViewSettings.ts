@@ -3,10 +3,11 @@ import type { AliasEntry } from "./AliasEntry";
 import type { DisplaySettings } from "./DisplaySettings";
 import type { ScaleOverride } from "./ScaleOverride";
 import type { ScaleSettings } from "./ScaleSettings";
+import type { ValueColorRule } from "./ValueColorRule";
 import type { ValueColumns } from "./ValueColumns";
 
 /**
  * Argument `view` of `mm_set_poll_view`: a patch. A missing key leaves that value
  * unchanged; `scale: null` removes the scale.
  */
-export type PollViewSettings = { display?: DisplaySettings, scale?: ScaleSettings | null, scaleOverrides?: Array<ScaleOverride>, valueColumns?: ValueColumns, aliases?: Array<AliasEntry>, hasUnappliedEdits?: boolean, };
+export type PollViewSettings = { display?: DisplaySettings, colorRules?: Array<ValueColorRule>, scale?: ScaleSettings | null, scaleOverrides?: Array<ScaleOverride>, valueColumns?: ValueColumns, aliases?: Array<AliasEntry>, hasUnappliedEdits?: boolean, };

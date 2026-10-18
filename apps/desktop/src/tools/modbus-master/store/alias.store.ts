@@ -12,6 +12,7 @@ import {
   parseAliasPaste,
   pasteToastText,
 } from "../lib/alias";
+import { isCombinedFormat, registerWidth } from "../lib/combined";
 
 export type AliasEditStart = "f2" | "dblclick" | "menu";
 /** How the editor was left: `Enter`, `Shift+Enter`, `Tab` or a blur. */
@@ -139,24 +140,29 @@ export function createAliasStore(deps: AliasStoreDeps): AliasStoreApi {
           void send(merged.entries);
         }
 
-        const range = rangeOf(deps.getConfig());
+        const config = deps.getConfig();
+        const range = rangeOf(config);
+        const step =
+          config && config.definition.function >= 3 && isCombinedFormat(config.display.format)
+            ? registerWidth(config.display.format)
+            : 1;
         const { address, startedBy } = editing;
-        if (key === "enter" && range && address < range.end) {
+        if (key === "enter" && range && address + step <= range.end) {
           set({
             editing: {
-              address: address + 1,
-              text: get().aliases.get(address + 1) ?? "",
+              address: address + step,
+              text: get().aliases.get(address + step) ?? "",
               error: null,
               startedBy,
             },
           });
           return "next";
         }
-        if (key === "shiftEnter" && range && address > range.start) {
+        if (key === "shiftEnter" && range && address - step >= range.start) {
           set({
             editing: {
-              address: address - 1,
-              text: get().aliases.get(address - 1) ?? "",
+              address: address - step,
+              text: get().aliases.get(address - step) ?? "",
               error: null,
               startedBy,
             },

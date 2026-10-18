@@ -1,10 +1,12 @@
 import { memo } from "react";
 import { Icon } from "@/shared/ui/icon";
 import { SegmentedControl } from "@/shared/ui/segmented";
+import { isCombinedFormat } from "../../lib/combined";
 import { VALUE_FORMAT_LABELS, VALUE_FORMATS } from "../../lib/format";
 import { isBitFunction } from "../../lib/functions";
 import { SCALE_REGISTERS_ONLY } from "../../lib/scale-presets";
 import { effectiveValueColumns, scaleAvailable } from "../../lib/scaled";
+import { CombinedGrid } from "./CombinedGrid";
 import { usePoll, usePollViewRuntime } from "./context";
 import { DataGrid } from "./DataGrid";
 import { FreshnessSlot } from "./FreshnessSlot";
@@ -113,6 +115,8 @@ export const DataCard = memo(function DataCard({ view, chipInput, wideHeader }: 
           <Icon name={view.empty.icon} className="size-6" />
           <p>{view.empty.text}</p>
         </div>
+      ) : !bits && isCombinedFormat(config.display.format) ? (
+        <CombinedGrid format={config.display.format} loading={view.loading} stale={view.stale} />
       ) : (
         <DataGrid
           rowCount={def.quantity}

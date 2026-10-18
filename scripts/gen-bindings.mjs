@@ -30,13 +30,17 @@ function generate(outDir) {
   clean(outDir);
   const result = spawnSync(
     "cargo",
-    ["test", "--package", "shared-types", "--lib", "export_bindings", "--quiet"],
+    ["test", "--workspace", "--lib", "export_bindings", "--quiet"],
     { cwd: root, stdio: "inherit", env: { ...process.env, TS_RS_EXPORT_DIR: outDir } },
   );
   if (result.error) throw result.error;
   if (result.status !== 0) {
     console.error("bindings: `cargo test` failed while exporting ts-rs types");
     process.exit(result.status ?? 1);
+  }
+  for (const f of readdirSync(outDir).filter((name) => name.endsWith(".ts"))) {
+    const path = join(outDir, f);
+    writeFileSync(path, readFileSync(path, "utf8").replace(/[\t ]+$/gm, ""));
   }
   // Barrel file so the frontend imports from "@/shared/bindings".
   const types = readdirSync(outDir)

@@ -5,27 +5,27 @@ import type { ScalePreset } from "./ScalePreset";
 /**
  * A scale (DES-003 1.1). Interpreted by the frontend only.
  */
-export type ScaleSettings = { preset: ScalePreset, 
+export type ScaleSettings = { preset: ScalePreset,
 /**
  * X is read as signed 16-bit.
  */
-rawSigned: boolean, 
+rawSigned: boolean,
 /**
  * Raw range (linear presets), -32768..65535.
  */
-xMin: number, xMax: number, 
+xMin: number, xMax: number,
 /**
  * Engineering range (linear presets).
  */
-yMin: number, yMax: number, 
+yMin: number, yMax: number,
 /**
  * Divide preset.
  */
-divisor: number, 
+divisor: number,
 /**
  * 0-6.
  */
-decimals: number, 
+decimals: number,
 /**
  * At most 16 characters (the UI allows 12).
  */

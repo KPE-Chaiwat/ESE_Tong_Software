@@ -22,6 +22,7 @@ import {
   reconcileDraft,
   validateDraftField,
 } from "./poll-draft.logic";
+import type { RuleDraft } from "./rule-draft";
 
 export type ColumnId = "alias" | "address" | "raw" | "scaled";
 
@@ -50,6 +51,16 @@ export interface ScaleDraft {
 }
 
 export interface PollViewUiState {
+  bulkOperationToken: string | null;
+  groupWidth: number;
+  ruleDraft: RuleDraft | null;
+  inspectedGroupAddress: number | null;
+  interpretationDraft: {
+    format: string;
+    swapBytes: boolean;
+    reverseWords: boolean;
+    error: string | null;
+  } | null;
   /** The setup dock, popover or panel is open. */
   setupOpen: boolean;
   /** Compact mode is on (mirrored from Rust). */
@@ -70,6 +81,10 @@ export interface PollViewUiState {
 }
 
 export interface PollViewUiActions {
+  setGroupWidth(width: number): void;
+  setRuleDraft(draft: RuleDraft | null): void;
+  setInspectedGroupAddress(address: number | null): void;
+  setInterpretationDraft(draft: PollViewUiState["interpretationDraft"]): void;
   toggleSetup(): void;
   setSetupOpen(open: boolean): void;
   /** Closes the setup dock, popover or panel (Esc inside the popover, [Done]). */
@@ -134,6 +149,11 @@ function rangeOf(config: PollConfig | null): { start: number; end: number } | nu
 }
 
 const initialState: PollViewUiState = {
+  bulkOperationToken: null,
+  groupWidth: 1,
+  ruleDraft: null,
+  inspectedGroupAddress: null,
+  interpretationDraft: null,
   setupOpen: false,
   compact: false,
   setupOverride: false,
@@ -325,11 +345,27 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
       setScaleDraft(draft) {
         set({ scaleDraft: draft });
       },
+      setGroupWidth(width) {
+        set({ groupWidth: width });
+      },
+      setRuleDraft(draft) {
+        set({ ruleDraft: draft });
+      },
+      setInterpretationDraft(draft) {
+        set({ interpretationDraft: draft });
+      },
+      setInspectedGroupAddress(address) {
+        set({ inspectedGroupAddress: address });
+      },
 
       toHandoff() {
         const s = get();
         const handoff: PollViewHandoffV1 = {
           version: 1,
+          inspectedGroupAddress: s.inspectedGroupAddress,
+          groupWidth: s.groupWidth,
+          ruleDraft: s.ruleDraft,
+          interpretationDraft: s.interpretationDraft,
           setupOpen: s.setupOpen,
           setupOverride: s.setupOverride,
           selection: s.selection.map((r) => ({ ...r })),
@@ -366,6 +402,10 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
             ? { ...handoff.pollDraft, errors: { ...handoff.pollDraft.errors } }
             : null,
           scaleDraft: handoff.scaleDraft,
+          inspectedGroupAddress: handoff.inspectedGroupAddress ?? null,
+          groupWidth: handoff.groupWidth ?? 1,
+          ruleDraft: handoff.ruleDraft ?? null,
+          interpretationDraft: handoff.interpretationDraft ?? null,
         });
         return true;
       },

@@ -9,6 +9,9 @@ import type {
   ArrangeResult,
   ArrangeTarget,
   ConnectionConfig,
+  PollBulkAction,
+  PollBulkPlan,
+  PollBulkResult,
   PollConfigInput,
   PollDefinition,
   PollHostKind,
@@ -47,6 +50,16 @@ export interface ModbusMasterIpc {
   // ---- polls ----
   addPoll(input: PollConfigInput, host: PollHostKind): Promise<PollId>;
   duplicatePoll(pollId: PollId): Promise<PollId>;
+  preparePollBulk(action: PollBulkAction, pollIds: PollId[]): Promise<PollBulkPlan>;
+  duplicatePolls(planToken: string): Promise<PollBulkResult>;
+  removePolls(planToken: string): Promise<PollBulkResult>;
+  ackPollBulkReady(
+    operationToken: string,
+    pollId: PollId,
+    viewToken: ViewToken,
+    ready: boolean,
+  ): Promise<void>;
+  recoverPollBulkWindows(operationToken: string): Promise<PollBulkResult>;
   removePoll(pollId: PollId): Promise<void>;
   /** Applies a changed definition (PT6, PT6b). */
   updatePoll(pollId: PollId, definition: PollDefinition): Promise<void>;
@@ -137,6 +150,13 @@ export function createTauriModbusMasterIpc(): ModbusMasterIpc {
     setAutoStartPoll: (enabled) => call<void>("mm_set_auto_start_poll", { enabled }),
 
     addPoll: (input, host) => call<PollId>("mm_add_poll", { input, host }),
+    preparePollBulk: (action, pollIds) => call("mm_prepare_poll_bulk", { action, pollIds }),
+    duplicatePolls: (planToken) => call("mm_duplicate_polls", { planToken }),
+    removePolls: (planToken) => call("mm_remove_polls", { planToken }),
+    ackPollBulkReady: (operationToken, pollId, viewToken, ready) =>
+      call("mm_ack_poll_bulk_ready", { operationToken, pollId, viewToken, ready }),
+    recoverPollBulkWindows: (operationToken) =>
+      call("mm_recover_poll_bulk_windows", { operationToken }),
     duplicatePoll: (pollId) => call<PollId>("mm_duplicate_poll", { pollId }),
     removePoll: (pollId) => call<void>("mm_remove_poll", { pollId }),
     updatePoll: (pollId, definition) => call<void>("mm_update_poll", { pollId, definition }),

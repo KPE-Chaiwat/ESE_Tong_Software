@@ -4,21 +4,22 @@ import type { DisplaySettings } from "./DisplaySettings";
 import type { PollDefinition } from "./PollDefinition";
 import type { ScaleOverride } from "./ScaleOverride";
 import type { ScaleSettings } from "./ScaleSettings";
+import type { ValueColorRule } from "./ValueColorRule";
 import type { ValueColumns } from "./ValueColumns";
 
 /**
  * What `mm_add_poll` takes. `active` is not part of it: a new poll gets
  * `active = autoStartPoll` (DES-002 1.2).
  */
-export type PollConfigInput = { 
+export type PollConfigInput = {
 /**
  * 1-48 characters, unique on the connection ignoring case.
  */
-name: string, definition: PollDefinition, display: DisplaySettings, scale: ScaleSettings | null, 
+name: string, definition: PollDefinition, display: DisplaySettings, colorRules: Array<ValueColorRule>, scale: ScaleSettings | null,
 /**
  * At most 64.
  */
-scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns, 
+scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns,
 /**
  * At most 2000, unique addresses (any order on input; stored sorted by address).
  */

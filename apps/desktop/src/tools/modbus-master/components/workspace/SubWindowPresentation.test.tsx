@@ -47,7 +47,7 @@ describe("setup presentation of a sub-window (frame width)", () => {
   it("the default sub-window is 640 px wide with a 636 px body and shows the 300 px dock", async () => {
     h = await renderWindow();
     const id = await h.addPoll("A");
-    expect(frame(id).style.width).toBe("640px");
+    expect(frame(id).closest(".grid-stack-item")).toHaveAttribute("gs-w");
     expect(frame(id).className).toContain("border-2");
     await openSetup(id);
     measure(640, 636);

@@ -113,7 +113,7 @@ describe("a failed pop out keeps the focus", () => {
     await waitFor(() => expect(titleBar(a)).toHaveFocus());
   });
 
-  it("the sidebar menu returns the focus to the poll row", async () => {
+  it("the sidebar menu returns the focus to the poll Show target", async () => {
     const a = await connectedPoll();
     h.ipc.scriptPopOutFailure("boom");
     const row = document.querySelector<HTMLElement>(
@@ -122,7 +122,7 @@ describe("a failed pop out keeps the focus", () => {
     fireEvent.contextMenu(row, { clientX: 20, clientY: 20 });
     await h.user.click(await screen.findByRole("menuitem", { name: /^Pop out/ }));
     expect(await screen.findByText("Could not open the poll window: boom")).toBeVisible();
-    await waitFor(() => expect(row).toHaveFocus());
+    await waitFor(() => expect(row.querySelector("[data-poll-show]")).toHaveFocus());
   });
 
   it("a control that took the focus meanwhile keeps it", async () => {

@@ -8,9 +8,10 @@ afterEach(() => {
   h?.rt.dispose();
 });
 
-const list = () => screen.getByRole("listbox", { name: "Polls" });
-const rows = () => within(list()).getAllByRole("option");
-const row = (name: RegExp | string) => within(list()).getByRole("option", { name });
+const list = () => screen.getByRole("list", { name: "Polls" });
+const rows = () => within(list()).getAllByRole("listitem");
+const row = (name: RegExp | string) => within(list()).getByRole("listitem", { name });
+const show = (name: RegExp | string) => within(row(name)).getByRole("button", { name });
 const frame = (id: PollId) => document.querySelector(`[data-subwindow="${id}"]`) as HTMLElement;
 
 describe("POLLS list (DES-002 2.2.3)", () => {
@@ -94,10 +95,10 @@ describe("POLLS list (DES-002 2.2.3)", () => {
     h = await renderWindow();
     const a = await h.addPoll("A");
     await h.addPoll("B");
-    expect(row(/^B,/)).toHaveAttribute("aria-selected", "true");
-    expect(row(/^A,/)).toHaveAttribute("aria-selected", "false");
+    expect(show(/^B,/)).toHaveAttribute("aria-current", "true");
+    expect(show(/^A,/)).not.toHaveAttribute("aria-current");
     await h.act(() => h.rt.stores.workspace.getState().activate(a));
-    expect(row(/^A,/)).toHaveAttribute("aria-selected", "true");
+    expect(show(/^A,/)).toHaveAttribute("aria-current", "true");
     expect(row(/^A,/).querySelector("span.bg-dark")).toBeInTheDocument();
   });
 
@@ -109,7 +110,7 @@ describe("POLLS list (DES-002 2.2.3)", () => {
     expect(frame(a)).toHaveAttribute("aria-current", "true");
     expect(h.ipc.callsOf("showPoll")).toHaveLength(0);
     const b = h.ipc.pollIds()[1] as PollId;
-    row(/^B,/).focus();
+    show(/^B,/).focus();
     await h.user.keyboard("{Enter}");
     expect(frame(b)).toHaveAttribute("aria-current", "true");
   });
@@ -139,12 +140,12 @@ describe("POLLS list (DES-002 2.2.3)", () => {
     h = await renderWindow();
     await h.addPoll("A");
     const b = await h.addPoll("B");
-    row(/^B,/).focus();
-    fireEvent.keyDown(row(/^B,/), { key: "ArrowUp" });
-    expect(row(/^A,/)).toHaveAttribute("aria-selected", "true");
-    fireEvent.keyDown(row(/^A,/), { key: "ArrowDown" });
-    await waitFor(() => expect(row(/^B,/)).toHaveAttribute("aria-selected", "true"));
-    fireEvent.keyDown(row(/^B,/), { key: "Delete" });
+    show(/^B,/).focus();
+    fireEvent.keyDown(show(/^B,/), { key: "ArrowUp" });
+    expect(show(/^A,/)).toHaveAttribute("aria-current", "true");
+    fireEvent.keyDown(show(/^A,/), { key: "ArrowDown" });
+    await waitFor(() => expect(show(/^B,/)).toHaveAttribute("aria-current", "true"));
+    fireEvent.keyDown(show(/^B,/), { key: "Delete" });
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText("Delete poll?")).toBeVisible();
     expect(dialog).toHaveTextContent(
@@ -159,7 +160,7 @@ describe("POLLS list (DES-002 2.2.3)", () => {
   it("Cancel in the Delete dialog keeps the poll", async () => {
     h = await renderWindow();
     await h.addPoll("A");
-    fireEvent.keyDown(row(/^A,/), { key: "Delete" });
+    fireEvent.keyDown(show(/^A,/), { key: "Delete" });
     await h.user.click(await screen.findByRole("button", { name: "Cancel" }));
     expect(h.ipc.pollIds()).toHaveLength(1);
   });
@@ -195,11 +196,15 @@ describe("POLLS list (DES-002 2.2.3)", () => {
     expect(await screen.findByRole("alertdialog")).toBeVisible();
   });
 
-  it("only one row is in the tab order", async () => {
+  it("each Show target is in the tab order", async () => {
     h = await renderWindow();
     await h.addPoll("A");
     await h.addPoll("B");
-    expect(rows().filter((r) => r.tabIndex === 0)).toHaveLength(1);
+    expect(
+      within(list())
+        .getAllByRole("button")
+        .filter((r) => r.hasAttribute("data-poll-show") && r.tabIndex === 0),
+    ).toHaveLength(2);
   });
 
   it("the header counts the polls", async () => {
@@ -214,9 +219,9 @@ describe("keyboard access of the row (REV-006 n-9)", () => {
   it("the ⋯ button is a mouse shortcut: it is not a tab stop, the row menu has Shift+F10", async () => {
     h = await renderWindow();
     await h.addPoll("A");
-    expect(screen.getByRole("button", { name: "Actions for A" })).toHaveAttribute("tabindex", "-1");
-    row(/^A,/).focus();
-    fireEvent.keyDown(row(/^A,/), { key: "F10", shiftKey: true });
+    expect(screen.getByRole("button", { name: "Actions for A" }).tabIndex).toBe(0);
+    show(/^A,/).focus();
+    fireEvent.keyDown(show(/^A,/), { key: "F10", shiftKey: true });
     expect(await screen.findByRole("menu", { name: "Actions for A" })).toBeVisible();
   });
 });

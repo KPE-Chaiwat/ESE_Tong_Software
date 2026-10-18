@@ -3,7 +3,7 @@
 /**
  * One serial port.
  */
-export type SerialPortInfo = { 
+export type SerialPortInfo = {
 /**
  * Name to pass in `ConnectionConfig.port`, for example `COM3`.
  */

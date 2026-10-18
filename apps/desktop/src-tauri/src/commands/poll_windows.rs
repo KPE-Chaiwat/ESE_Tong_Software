@@ -122,11 +122,24 @@ pub async fn open_native(
     reference: &str,
     k: i64,
 ) -> AppResult<()> {
+    // A failed bulk create can leave a terminal orphan if native destruction failed.
+    // Remove that exact closed-host window before retrying the same surviving definition.
+    let label = poll_window_label(connection, info.poll_id);
+    if info.open && d.exists(&label) {
+        return d.reveal_checked(&label).map_err(internal);
+    }
+    if !info.open && d.exists(&label) {
+        d.destroy_checked(&label).map_err(internal)?;
+    }
     let undo = session.begin_native_open(info.poll_id, None).await?;
     let spot = spot_for_show(d, info.native.as_ref(), reference, k);
     match create(d, connection, info.poll_id, &info.name, spot) {
         Ok(label) => {
-            d.reveal(&label);
+            if let Err(message) = d.reveal_checked(&label) {
+                let _ = d.destroy_checked(&label);
+                let _ = session.undo_native_open(info.poll_id, undo).await;
+                return Err(internal(message));
+            }
             Ok(())
         }
         Err(e) => {
@@ -209,7 +222,11 @@ pub async fn show(
         ShowOutcome::FocusNative => {
             if !d.reveal(&label) {
                 // Its window is gone: the poll is closed, then opened again.
-                session.native_window_destroyed(poll_id).await?;
+                if let Some(generation) = session.native_generation(poll_id) {
+                    session
+                        .native_incarnation_destroyed(poll_id, generation)
+                        .await?;
+                }
                 open_native(d, session, connection, &info, connection, k).await?;
             }
         }
@@ -478,6 +495,7 @@ mod tests {
                 scan_rate_ms: 1000,
             },
             display: DisplaySettings::default(),
+            color_rules: Vec::new(),
             scale: None,
             scale_overrides: vec![],
             value_columns: ValueColumns::Raw,
@@ -658,6 +676,7 @@ mod tests {
             z: 1,
             state: SubWindowState::Normal,
             restore: None,
+            grid: None,
         };
         let err = dock(&d, &s, W1, a, None, true, Some(bad))
             .await

@@ -64,7 +64,9 @@ export function buildDraft(
   },
 ): WriteDraft {
   const draft = emptyDraft();
-  draft.valueFormat = ctx.format;
+  draft.valueFormat = ["unsigned", "signed", "hex", "binary"].includes(ctx.format)
+    ? ctx.format
+    : "unsigned";
   draft.slaveId = String(prefill?.slaveId ?? ctx.defaultSlaveId);
   if (!prefill) {
     draft.function = String(ctx.lastFunction);

@@ -11,6 +11,7 @@ import {
 import { useConnection, usePollList, useProfileInfo, useRuntime, useWorkspace } from "./context";
 import { ConfirmHost } from "./dialogs/ConfirmHost";
 import { OpenProfileDialog } from "./dialogs/OpenProfileDialog";
+import { PollBulkDialog } from "./dialogs/PollBulkDialog";
 import { PollDialogs } from "./dialogs/PollDialogs";
 import { SaveAsDialog } from "./dialogs/SaveAsDialog";
 import { ConnectionBanner } from "./shell/ConnectionBanner";
@@ -113,6 +114,7 @@ export function ConnectionWindow() {
       <OpenProfileDialog />
       <SaveAsDialog />
       <ConfirmHost />
+      <PollBulkDialog />
       <Toaster store={runtime.stores.toasts} />
       <LiveRegions />
       <ListDragLayer />

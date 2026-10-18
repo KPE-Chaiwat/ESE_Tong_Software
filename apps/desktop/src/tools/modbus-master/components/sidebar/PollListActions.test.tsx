@@ -8,11 +8,12 @@ afterEach(() => {
   h?.rt.dispose();
 });
 
-const list = () => screen.getByRole("listbox", { name: "Polls" });
-const row = (name: RegExp | string) => within(list()).getByRole("option", { name });
+const list = () => screen.getByRole("list", { name: "Polls" });
+const row = (name: RegExp | string) => within(list()).getByRole("listitem", { name });
+const show = (name: RegExp | string) => within(row(name)).getByRole("button", { name });
 const rowNames = () =>
   within(list())
-    .getAllByRole("option")
+    .getAllByRole("listitem")
     .map((r) => r.getAttribute("aria-label")?.split(",")[0]);
 const frame = (id: PollId) =>
   document.querySelector(`[data-subwindow="${id}"]`) as HTMLElement | null;
@@ -27,8 +28,8 @@ describe("row actions (DES-002 2.2.3)", () => {
   it("F2 renames in place: the field holds the name, Enter sends it, the row shows the new name", async () => {
     h = await renderWindow();
     const a = await h.addPoll("Tank");
-    row(/^Tank,/).focus();
-    fireEvent.keyDown(row(/^Tank,/), { key: "F2" });
+    show(/^Tank,/).focus();
+    fireEvent.keyDown(show(/^Tank,/), { key: "F2" });
     const input = within(list()).getByRole("textbox", { name: "Poll name" });
     expect(input).toHaveValue("Tank");
     expect(input).toHaveFocus();
@@ -38,14 +39,14 @@ describe("row actions (DES-002 2.2.3)", () => {
     await waitFor(() => expect(within(list()).queryByRole("textbox")).not.toBeInTheDocument());
     expect(row(/^Boiler,/)).toBeVisible();
     // The focus is back on the row.
-    await waitFor(() => expect(row(/^Boiler,/)).toHaveFocus());
+    await waitFor(() => expect(show(/^Boiler,/)).toHaveFocus());
   });
 
   it("an invalid name keeps the field open with the message (DES-002 4)", async () => {
     h = await renderWindow();
     await h.addPoll("Tank");
     await h.addPoll("Pump");
-    fireEvent.keyDown(row(/^Tank,/), { key: "F2" });
+    fireEvent.keyDown(show(/^Tank,/), { key: "F2" });
     const input = within(list()).getByRole("textbox", { name: "Poll name" });
     await h.user.clear(input);
     await h.user.type(input, "pump{Enter}");
@@ -61,7 +62,7 @@ describe("row actions (DES-002 2.2.3)", () => {
   it("Esc leaves the name as it was", async () => {
     h = await renderWindow();
     await h.addPoll("Tank");
-    fireEvent.keyDown(row(/^Tank,/), { key: "F2" });
+    fireEvent.keyDown(show(/^Tank,/), { key: "F2" });
     const input = within(list()).getByRole("textbox", { name: "Poll name" });
     await h.user.type(input, "xyz{Escape}");
     expect(within(list()).queryByRole("textbox")).not.toBeInTheDocument();
@@ -72,13 +73,13 @@ describe("row actions (DES-002 2.2.3)", () => {
   it("a blur sends a valid name and reverts an invalid one", async () => {
     h = await renderWindow();
     const a = await h.addPoll("Tank");
-    fireEvent.keyDown(row(/^Tank,/), { key: "F2" });
+    fireEvent.keyDown(show(/^Tank,/), { key: "F2" });
     let input = within(list()).getByRole("textbox", { name: "Poll name" });
     await h.user.clear(input);
     await h.user.type(input, "Boiler");
     fireEvent.blur(input);
     await waitFor(() => expect(h.ipc.callsOf("renamePoll")).toEqual([[a, "Boiler"]]));
-    fireEvent.keyDown(row(/^Boiler,/), { key: "F2" });
+    fireEvent.keyDown(show(/^Boiler,/), { key: "F2" });
     input = within(list()).getByRole("textbox", { name: "Poll name" });
     await h.user.clear(input);
     fireEvent.blur(input);
@@ -97,7 +98,7 @@ describe("row actions (DES-002 2.2.3)", () => {
   it("clicking in the rename field does not show the poll", async () => {
     h = await renderWindow();
     await h.addPoll("Tank");
-    fireEvent.keyDown(row(/^Tank,/), { key: "F2" });
+    fireEvent.keyDown(show(/^Tank,/), { key: "F2" });
     const input = within(list()).getByRole("textbox", { name: "Poll name" });
     await h.user.click(input);
     expect(h.ipc.callsOf("showPoll")).toHaveLength(0);
@@ -112,7 +113,7 @@ describe("row actions (DES-002 2.2.3)", () => {
     await h.user.click(item("Duplicate"));
     await waitFor(() => expect(h.ipc.callsOf("duplicatePoll")).toHaveLength(1));
     await waitFor(() => expect(rowNames()).toEqual(["Tank", "Tank copy", "Pump"]));
-    expect(row(/^Tank copy,/)).toHaveAttribute("aria-selected", "true");
+    expect(show(/^Tank copy,/)).toHaveAttribute("aria-current", "true");
   });
 
   it("Duplicate is off at 16 polls, with the title", async () => {
@@ -137,20 +138,20 @@ describe("row actions (DES-002 2.2.3)", () => {
   it("Shift+F10 and the menu key open the row menu; Esc closes it and the focus returns to the row", async () => {
     h = await renderWindow();
     await h.addPoll("Tank");
-    row(/^Tank,/).focus();
-    fireEvent.keyDown(row(/^Tank,/), { key: "F10", shiftKey: true });
+    show(/^Tank,/).focus();
+    fireEvent.keyDown(show(/^Tank,/), { key: "F10", shiftKey: true });
     expect(await screen.findByRole("menu", { name: "Actions for Tank" })).toBeVisible();
     await h.user.keyboard("{Escape}");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
-    await waitFor(() => expect(row(/^Tank,/)).toHaveFocus());
-    fireEvent.keyDown(row(/^Tank,/), { key: "ContextMenu" });
+    await waitFor(() => expect(show(/^Tank,/)).toHaveFocus());
+    fireEvent.keyDown(show(/^Tank,/), { key: "ContextMenu" });
     expect(await screen.findByRole("menu", { name: "Actions for Tank" })).toBeVisible();
   });
 
   it("the Delete key asks to delete", async () => {
     h = await renderWindow();
     await h.addPoll("Tank");
-    fireEvent.keyDown(row(/^Tank,/), { key: "Delete" });
+    fireEvent.keyDown(show(/^Tank,/), { key: "Delete" });
     expect(await screen.findByRole("alertdialog")).toBeVisible();
   });
 
@@ -190,38 +191,38 @@ describe("reorder from the keyboard (DES-002 2.10.8)", () => {
 
   it("Alt+Down moves the row one place, announces it, and keeps the focus on the row", async () => {
     const [a, b, c, d] = await four();
-    row(/^B,/).focus();
-    fireEvent.keyDown(row(/^B,/), { key: "ArrowDown", altKey: true });
+    show(/^B,/).focus();
+    fireEvent.keyDown(show(/^B,/), { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(h.ipc.callsOf("reorderPolls")).toEqual([[[a, c, b, d]]]));
     expect(rowNames()).toEqual(["A", "C", "B", "D"]);
     expect(live()).toHaveTextContent("B moved to position 3 of 4.");
-    await waitFor(() => expect(row(/^B,/)).toHaveFocus());
+    await waitFor(() => expect(show(/^B,/)).toHaveFocus());
   });
 
   it("Alt+Up moves it up; on the first row it does nothing and says nothing", async () => {
     const [a, b, c, d] = await four();
-    fireEvent.keyDown(row(/^C,/), { key: "ArrowUp", altKey: true });
+    fireEvent.keyDown(show(/^C,/), { key: "ArrowUp", altKey: true });
     await waitFor(() => expect(h.ipc.callsOf("reorderPolls")).toEqual([[[a, c, b, d]]]));
     expect(live()).toHaveTextContent("C moved to position 2 of 4.");
 
-    fireEvent.keyDown(row(/^A,/), { key: "ArrowUp", altKey: true });
+    fireEvent.keyDown(show(/^A,/), { key: "ArrowUp", altKey: true });
     await h.act(async () => {});
     expect(h.ipc.callsOf("reorderPolls")).toHaveLength(1);
   });
 
   it("Alt+Down on the last row does nothing", async () => {
     await four();
-    fireEvent.keyDown(row(/^D,/), { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(show(/^D,/), { key: "ArrowDown", altKey: true });
     await h.act(async () => {});
     expect(h.ipc.callsOf("reorderPolls")).toHaveLength(0);
   });
 
   it("the arrow keys alone still move the selection", async () => {
     await four();
-    row(/^A,/).focus();
+    show(/^A,/).focus();
     h.rt.stores.pollList.getState().select(h.ipc.pollIds()[0] as PollId);
-    fireEvent.keyDown(row(/^A,/), { key: "ArrowDown" });
-    await waitFor(() => expect(row(/^B,/)).toHaveAttribute("aria-selected", "true"));
+    fireEvent.keyDown(show(/^A,/), { key: "ArrowDown" });
+    await waitFor(() => expect(show(/^B,/)).toHaveAttribute("aria-current", "true"));
     expect(h.ipc.callsOf("reorderPolls")).toHaveLength(0);
   });
 
@@ -237,7 +238,7 @@ describe("reorder from the keyboard (DES-002 2.10.8)", () => {
   it("the reorder does not mark the profile Modified", async () => {
     await four();
     h.clean();
-    fireEvent.keyDown(row(/^B,/), { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(show(/^B,/), { key: "ArrowDown", altKey: true });
     await h.act(async () => {});
     expect(h.rt.stores.profile.getState().modified).toBe(false);
   });
@@ -245,7 +246,7 @@ describe("reorder from the keyboard (DES-002 2.10.8)", () => {
   it("a rejected reorder puts the rows back and shows the error", async () => {
     await four();
     h.ipc.failNext("reorderPolls", "no way");
-    fireEvent.keyDown(row(/^B,/), { key: "ArrowDown", altKey: true });
+    fireEvent.keyDown(show(/^B,/), { key: "ArrowDown", altKey: true });
     await waitFor(() => expect(screen.getByText("no way")).toBeVisible());
     expect(rowNames()).toEqual(["A", "B", "C", "D"]);
     expect(live()).not.toHaveTextContent("moved to position");
@@ -258,8 +259,8 @@ describe("copy (DES-002 3.2)", () => {
     await h.addPoll("Tank 1", {
       definition: { slaveId: 3, function: 4, startAddress: 0, quantity: 8, scanRateMs: 200 },
     });
-    row(/^Tank 1,/).focus();
-    fireEvent.keyDown(row(/^Tank 1,/), { key: "c", ctrlKey: true });
+    show(/^Tank 1,/).focus();
+    fireEvent.keyDown(show(/^Tank 1,/), { key: "c", ctrlKey: true });
     await waitFor(() => expect(h.copied).toEqual(["Tank 1\t3\tFC04\t0-7\t200 ms\tOffline"]));
     expect(await screen.findByText("Copied 1 row.")).toBeVisible();
   });
@@ -277,7 +278,7 @@ describe("the host entries of the row menu", () => {
       { kind: string; rect: unknown },
     ];
     expect(id).toBe(a);
-    expect(anchor).toEqual({ kind: "rect", rect: { x: 8, y: 8, width: 640, height: 368 } });
+    expect(anchor).toMatchObject({ kind: "rect", rect: { width: 640, height: 368 } });
     await waitFor(() => expect(frame(a)).toBeNull());
     expect(row(/^Tank,/)).toHaveTextContent("own window");
     expect(live()).toHaveTextContent("Tank opened in its own window.");
@@ -308,7 +309,7 @@ describe("the host entries of the row menu", () => {
   it("Ctrl+Shift+O pops out the selected row's poll", async () => {
     h = await renderWindow();
     const a = await h.addPoll("Tank");
-    row(/^Tank,/).focus();
+    show(/^Tank,/).focus();
     fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
     await waitFor(() => expect(h.ipc.callsOf("popOutPoll")).toHaveLength(1));
     expect((h.ipc.callsOf("popOutPoll")[0] as unknown[])[0]).toBe(a);

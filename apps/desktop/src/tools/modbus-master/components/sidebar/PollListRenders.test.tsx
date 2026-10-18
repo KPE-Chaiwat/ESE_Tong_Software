@@ -63,7 +63,7 @@ describe("render counts of the sidebar (REV-006 m-9)", () => {
     const before = renders.chip;
     for (let n = 2; n < 22; n += 1) await h.act(() => counters(ids, n));
     expect(renders.chip).toBe(before);
-    const row = within(screen.getByRole("listbox", { name: "Polls" })).getAllByRole("option")[0];
+    const row = within(screen.getByRole("list", { name: "Polls" })).getAllByRole("listitem")[0];
     await h.user.hover(row as HTMLElement);
     expect(row?.getAttribute("title")).toMatch(
       /^A · Slave 1 · FC03 · 0-9 \(10\) · 1000 ms · Last update \d\d:\d\d:\d\d\.021 · Errors 0$/,

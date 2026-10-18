@@ -1,4 +1,4 @@
-import { pollConfigInput } from "@/shared/ipc/modbus-master.fake";
+﻿import { pollConfigInput } from "@/shared/ipc/modbus-master.fake";
 import type { PollConfig } from "@/shared/ipc/modbus-master.types";
 import { parseHandoff } from "../lib/handoff";
 import type { DraftContext } from "./poll-draft.logic";
@@ -308,7 +308,14 @@ describe("poll draft", () => {
   it("a changed display base converts the start text of the draft", () => {
     store.getState().patchPollDraft("startAddress", "5");
     const oneBased = makeConfig(0, 10, {
-      display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+      display: {
+        format: "unsigned",
+        addressBase: 1,
+        showAlias: true,
+        copyAlias: false,
+        swapBytes: false,
+        reverseWords: false,
+      },
     });
     config = oneBased;
     store.getState().reconcileConfig(oneBased, 0);

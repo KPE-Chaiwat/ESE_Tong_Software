@@ -18,6 +18,7 @@ export interface WindowMenuPoll {
 }
 
 export interface WindowMenuInput {
+  gridMode?: boolean;
   /** Non-minimized sub-windows. */
   visibleCount: number;
   minimizedCount: number;
@@ -33,6 +34,7 @@ export interface WindowMenuInput {
   monitors: readonly MonitorInfo[];
   arrangeTarget: ArrangeTarget;
   onTile(): void;
+  onResetGrid?(): void;
   onTileMode(on: boolean): void;
   onCascade(): void;
   onArrangeMinimized(): void;
@@ -54,29 +56,42 @@ export function windowMenuEntries(input: WindowMenuInput): MenuEntry[] {
   const anyVisible = input.visibleCount > 0;
   const noNative = input.nativeCount === 0;
   return [
-    {
-      kind: "item",
-      id: "tile",
-      label: "Tile",
-      shortcut: "Ctrl+Shift+T",
-      disabled: !anyVisible,
-      onSelect: input.onTile,
-    },
-    {
-      kind: "check",
-      id: "tile-mode",
-      label: "Tile mode",
-      checked: input.tileMode,
-      onSelect: () => input.onTileMode(!input.tileMode),
-    },
-    {
-      kind: "item",
-      id: "cascade",
-      label: "Cascade",
-      shortcut: "Ctrl+Shift+C",
-      disabled: !anyVisible,
-      onSelect: input.onCascade,
-    },
+    ...(input.gridMode
+      ? [
+          {
+            kind: "item" as const,
+            id: "reset-grid",
+            label: "Reset grid layout",
+            shortcut: "Ctrl+Shift+T",
+            disabled: !anyVisible,
+            onSelect: input.onResetGrid ?? input.onTile,
+          },
+        ]
+      : ([
+          {
+            kind: "item",
+            id: "tile",
+            label: "Tile",
+            shortcut: "Ctrl+Shift+T",
+            disabled: !anyVisible,
+            onSelect: input.onTile,
+          },
+          {
+            kind: "check",
+            id: "tile-mode",
+            label: "Tile mode",
+            checked: input.tileMode,
+            onSelect: () => input.onTileMode(!input.tileMode),
+          },
+          {
+            kind: "item",
+            id: "cascade",
+            label: "Cascade",
+            shortcut: "Ctrl+Shift+C",
+            disabled: !anyVisible,
+            onSelect: input.onCascade,
+          },
+        ] as MenuEntry[])),
     {
       kind: "item",
       id: "arrange-minimized",

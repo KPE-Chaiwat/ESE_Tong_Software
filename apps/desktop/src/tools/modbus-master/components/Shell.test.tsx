@@ -55,13 +55,13 @@ describe("the window shell (DES-002 2.2)", () => {
     expect(screen.getByRole("contentinfo")).toContainElement(screen.getByTestId("app-version"));
   });
 
-  it("the toolbar has File, Connection, New poll and Window in that order", async () => {
+  it("the toolbar places the sidebar toggle immediately before New poll", async () => {
     h = await renderWindow();
     expect(
       within(toolbar())
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label") ?? b.textContent?.trim()),
-    ).toEqual(["File", "Connection", "New poll", "Window", "Connect"]);
+    ).toEqual(["File", "Connection", "Hide sidebar", "New poll", "Window", "Connect"]);
   });
 
   it("the File menu: Open, Save and Save as work, so do New window and Close window", async () => {
@@ -198,7 +198,7 @@ describe("connection states (DES-002 1.5)", () => {
     await h.act(() => h.ipc.dropLink(sessionReason("closedByPeer", "bye", "linkLost")));
     expect(pill()).toHaveTextContent("Disconnected");
     expect(chip()).toBeNull();
-    expect(screen.getByRole("option", { name: /A, Offline/ })).toBeVisible();
+    expect(screen.getByRole("listitem", { name: /A, Offline/ })).toBeVisible();
   });
 
   it("the live region announces each connection transition once, the lost link assertively", async () => {
@@ -498,7 +498,7 @@ describe("regions and keys (DES-002 9)", () => {
     const a = await h.addPoll("A");
     await h.connect();
     h.advance(300);
-    await h.user.click(screen.getByRole("option", { name: /^A,/ }));
+    await h.user.click(screen.getByRole("listitem", { name: /^A,/ }));
     key("p", { ctrl: true });
     await waitFor(() => expect(h.ipc.callsOf("setPollActive")).toEqual([[a, false]]));
   });
@@ -510,7 +510,11 @@ describe("regions and keys (DES-002 9)", () => {
     expect(screen.getByRole("navigation", { name: "Polls (rail)" })).toBeVisible();
     const aside = () => document.querySelector<HTMLElement>('[data-slot="sidebar"]') as HTMLElement;
     expect(aside().hidden).toBe(true);
-    await h.user.click(screen.getByRole("button", { name: "Show sidebar (Ctrl+\\)" }));
+    await h.user.click(
+      within(screen.getByRole("navigation", { name: "Polls (rail)" })).getByRole("button", {
+        name: "Show sidebar",
+      }),
+    );
     expect(aside().hidden).toBe(false);
     expect(screen.getByRole("complementary", { name: "Sidebar" })).toBeVisible();
     expect(screen.queryByRole("navigation", { name: "Polls (rail)" })).not.toBeInTheDocument();
@@ -540,7 +544,7 @@ describe("compact mode (DES-002 2.9)", () => {
       "Pump 2: Offline",
     ]);
     expect(icons[0]?.querySelector('[data-icon="wifi-off"]')).toBeInTheDocument();
-    await h.user.click(within(rail).getByRole("button", { name: "Show sidebar (Ctrl+\\)" }));
+    await h.user.click(within(rail).getByRole("button", { name: "Show sidebar" }));
     expect(screen.getByRole("complementary", { name: "Sidebar" })).toBeVisible();
     // Toggling compact mode ends the peek.
     key("|", { ctrl: true, shift: true });

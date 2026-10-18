@@ -1,5 +1,6 @@
 import { createContext, type ReactNode, useContext, useEffect } from "react";
 import { useStore } from "zustand";
+import { sidebarExpanded } from "../lib/sidebar";
 import type { ConnectionRuntime } from "../runtime/connection-runtime";
 import type { AnnouncerStore } from "../store/announcer.store";
 import type { ArrangeStore } from "../store/arrange.store";
@@ -10,8 +11,10 @@ import type { ConnectionSectionStore } from "../store/connection-section.store";
 import type { DialogsStore } from "../store/dialogs.store";
 import type { DragStore } from "../store/drag.store";
 import type { LayoutStore } from "../store/layout.store";
+import type { PollBulkStore } from "../store/poll-bulk.store";
 import type { PollHostStore } from "../store/poll-host.store";
 import type { PollListStore } from "../store/poll-list.store";
+import type { PollSelectionStore } from "../store/poll-selection.store";
 import type { PrefsStore } from "../store/prefs.store";
 import type { ProfileInfoStore } from "../store/profile-info.store";
 import type { ProfilesStore } from "../store/profiles.store";
@@ -48,6 +51,10 @@ export const useSection = <T,>(sel: (s: ConnectionSectionStore) => T) =>
   useStore(useRuntime().stores.section, sel);
 export const usePollList = <T,>(sel: (s: PollListStore) => T) =>
   useStore(useRuntime().stores.pollList, sel);
+export const usePollBulk = <T,>(sel: (s: PollBulkStore) => T) =>
+  useStore(useRuntime().stores.pollBulk, sel);
+export const usePollSelection = <T,>(sel: (s: PollSelectionStore) => T) =>
+  useStore(useRuntime().stores.pollSelection, sel);
 export const useTraffic = <T,>(sel: (s: TrafficStore) => T) =>
   useStore(useRuntime().stores.traffic, sel);
 export const useWorkspace = <T,>(sel: (s: WorkspaceStore) => T) =>
@@ -80,4 +87,11 @@ export function useModalLock(open: boolean): void {
     if (!open) return;
     return layout.getState().lockModal();
   }, [open, layout]);
+}
+
+export function useSidebarExpanded(): boolean {
+  const compact = usePrefs((s) => s.compact);
+  const peek = useLayout((s) => s.sidebarPeek);
+  const collapsed = useWorkspace((s) => s.sidebar.collapsed);
+  return sidebarExpanded(compact, peek, collapsed);
 }

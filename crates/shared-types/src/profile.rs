@@ -1,4 +1,4 @@
-//! Profile DTOs: schema 2 (DES-002 6.1) plus the schema 1 shape (BE-001) for migration.
+//! Profile DTOs: schema 3 plus explicit schema 1 and 2 shapes for migration.
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -8,10 +8,11 @@ use crate::modbus::{ConnectionConfig, PollDefinition};
 use crate::view::{
     AliasEntry, DisplaySettings, ScaleOverride, ScaleSettings, ValueColumns, ValueFormat,
 };
+use crate::ValueColorRule;
 
-/// Profile schema version written by this build. Schema 1 files are migrated on read;
-/// schema 3 or higher is rejected with `unsupportedSchema`.
-pub const PROFILE_SCHEMA_VERSION: u32 = 2;
+/// Profile schema version written by this build. Schemas 1 and 2 migrate on read;
+/// newer schemas are rejected with `unsupportedSchema`.
+pub const PROFILE_SCHEMA_VERSION: u32 = 5;
 
 /// One poll of a profile, in list order (DES-002 6.1).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -22,6 +23,7 @@ pub struct PollProfile {
     pub definition: PollDefinition,
     pub active: bool,
     pub display: DisplaySettings,
+    pub color_rules: Vec<ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     pub scale_overrides: Vec<ScaleOverride>,
     pub value_columns: ValueColumns,
@@ -30,12 +32,12 @@ pub struct PollProfile {
     pub view: PollViewPlacement,
 }
 
-/// A saved Modbus Master setup, schema 2.
+/// A saved Modbus Master setup, schema 3.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct Profile {
-    /// 2. Set by the backend on save.
+    /// 3. Checked by the backend on save.
     pub schema_version: u32,
     /// Max 64 characters, none of `\ / : * ? " < > |`. Unique per tool, case-insensitive.
     pub name: String,
@@ -46,7 +48,7 @@ pub struct Profile {
     pub workspace: WorkspaceProfile,
     /// 0-16 polls in list order (also the tile order).
     pub polls: Vec<PollProfile>,
-    /// Set by `profiles_get` when the file had an older schema (1); the file stays as it
+    /// Set by `profiles_get` when the file had an older schema (1 or 2); the file stays as it
     /// is until saved. Ignored by `profiles_save` and never written.
     pub migrated_from: Option<u32>,
 }
@@ -55,7 +57,7 @@ pub struct Profile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DisplaySettingsV1 {
-    pub format: ValueFormat,
+    pub format: LegacyValueFormat,
     pub address_base: u8,
 }
 
@@ -84,4 +86,59 @@ pub struct ProfileSummary {
     pub connection_summary: String,
     /// False when the file cannot be opened (newer schema or damaged); `profiles_get` fails.
     pub readable: bool,
+}
+
+/// The closed format domain of schema 1 and 2.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum LegacyValueFormat {
+    Unsigned,
+    Signed,
+    Hex,
+    Binary,
+}
+
+impl From<LegacyValueFormat> for ValueFormat {
+    fn from(value: LegacyValueFormat) -> Self {
+        match value {
+            LegacyValueFormat::Unsigned => Self::Unsigned,
+            LegacyValueFormat::Signed => Self::Signed,
+            LegacyValueFormat::Hex => Self::Hex,
+            LegacyValueFormat::Binary => Self::Binary,
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DisplaySettingsV2 {
+    pub format: LegacyValueFormat,
+    pub address_base: u8,
+    pub show_alias: bool,
+    pub copy_alias: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PollProfileV2 {
+    pub name: String,
+    pub definition: PollDefinition,
+    pub active: bool,
+    pub display: DisplaySettingsV2,
+    pub scale: Option<ScaleSettings>,
+    pub scale_overrides: Vec<ScaleOverride>,
+    pub value_columns: ValueColumns,
+    pub aliases: Vec<AliasEntry>,
+    pub view: PollViewPlacement,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProfileV2 {
+    pub name: String,
+    pub connection: ConnectionConfig,
+    pub auto_start_poll: bool,
+    pub connection_window: Option<WindowPlacement>,
+    pub workspace: WorkspaceProfile,
+    pub polls: Vec<PollProfileV2>,
 }

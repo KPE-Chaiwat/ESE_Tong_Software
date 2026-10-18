@@ -2,7 +2,7 @@ import type { ValueFormat } from "@/shared/ipc/modbus-master.types";
 
 export type ParseResult = { ok: true; raw: number } | { ok: false; message: string };
 
-export const VALUE_MESSAGES: Record<ValueFormat, string> = {
+export const VALUE_MESSAGES: Record<"unsigned" | "signed" | "hex" | "binary", string> = {
   unsigned: "Value must be from 0 to 65535.",
   signed: "Value must be from -32768 to 32767.",
   hex: "Enter a hex value from 0x0000 to 0xFFFF.",
@@ -10,7 +10,13 @@ export const VALUE_MESSAGES: Record<ValueFormat, string> = {
 };
 
 function fail(fmt: ValueFormat): ParseResult {
-  return { ok: false, message: VALUE_MESSAGES[fmt] };
+  return {
+    ok: false,
+    message:
+      fmt in VALUE_MESSAGES
+        ? VALUE_MESSAGES[fmt as keyof typeof VALUE_MESSAGES]
+        : "Writes require a 16-bit register format.",
+  };
 }
 
 /**
@@ -40,6 +46,8 @@ export function parseValue(text: string, fmt: ValueFormat): ParseResult {
         ? { ok: true, raw: Number.parseInt(digits, 2) }
         : fail(fmt);
     }
+    default:
+      return fail(fmt);
   }
 }
 

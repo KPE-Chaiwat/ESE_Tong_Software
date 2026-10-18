@@ -4,11 +4,11 @@ import type { ValueFormat } from "./ValueFormat";
 /**
  * Display options of one poll.
  */
-export type DisplaySettings = { format: ValueFormat, addressBase: 0 | 1, 
+export type DisplaySettings = { format: ValueFormat, swapBytes: boolean, reverseWords: boolean, addressBase: 0 | 1,
 /**
  * Alias column shown (default true).
  */
-showAlias: boolean, 
+showAlias: boolean,
 /**
  * "Include alias in copy" (default false).
  */

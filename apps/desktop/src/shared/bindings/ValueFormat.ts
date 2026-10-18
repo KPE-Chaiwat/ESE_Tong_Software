@@ -3,4 +3,4 @@
 /**
  * Raw value format of the data table.
  */
-export type ValueFormat = "unsigned" | "signed" | "hex" | "binary";
+export type ValueFormat = "unsigned" | "signed" | "hex" | "binary" | "signed32" | "unsigned32" | "float32" | "signed64" | "unsigned64" | "float64";

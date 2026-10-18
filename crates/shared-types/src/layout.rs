@@ -94,6 +94,52 @@ impl LogicalPoint {
 }
 
 /// A workspace sub-window rectangle (DES-002 6.1), relative to the workspace inner area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase")]
+pub struct GridRect {
+    pub x: u16,
+    pub y: u16,
+    pub w: u16,
+    pub h: u16,
+    pub columns: u16,
+}
+
+impl GridRect {
+    #[must_use]
+    pub fn is_valid(&self) -> bool {
+        self.columns > 0
+            && self.columns <= 12
+            && self.w > 0
+            && self.w <= self.columns
+            && self.h > 0
+            && self.x < self.columns
+            && self.x + self.w <= self.columns
+            && self.y <= 4096
+    }
+}
+
+#[cfg(test)]
+mod grid_rect_tests {
+    use super::GridRect;
+
+    #[test]
+    fn rejects_out_of_bounds_grid_cells() {
+        let good = GridRect {
+            x: 6,
+            y: 100,
+            w: 6,
+            h: 5,
+            columns: 12,
+        };
+        assert!(good.is_valid());
+        assert!(!GridRect { w: 7, ..good }.is_valid());
+        assert!(!GridRect { h: 0, ..good }.is_valid());
+        assert!(!GridRect { y: 4097, ..good }.is_valid());
+    }
+}
+
+/// A workspace sub-window rectangle (DES-002 6.1), relative to the workspace inner area.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
@@ -107,6 +153,10 @@ pub struct WorkspaceRect {
     pub state: SubWindowState,
     /// The normal rectangle while maximized, else null.
     pub restore: Option<LogicalRect>,
+    /// Exact GridStack cells. Missing from schemas 1–3; legacy pixels are migrated by W1.
+    #[serde(default)]
+    #[ts(optional)]
+    pub grid: Option<GridRect>,
 }
 
 impl WorkspaceRect {
@@ -114,6 +164,7 @@ impl WorkspaceRect {
     pub fn is_valid(&self) -> bool {
         LogicalRect::new(self.x, self.y, self.width, self.height).is_valid()
             && self.restore.as_ref().is_none_or(LogicalRect::is_valid)
+            && self.grid.as_ref().is_none_or(GridRect::is_valid)
     }
 }
 

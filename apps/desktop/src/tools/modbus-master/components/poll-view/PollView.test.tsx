@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+﻿import { act, screen, within } from "@testing-library/react";
 import { vi } from "vitest";
 import type { PollHostKind } from "@/shared/ipc/modbus-master.types";
 import { clickWithLayoutShift } from "@/shared/lib/press-test-utils";
@@ -272,7 +272,14 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
         poll: {
           valueColumns: "both",
           scale: SCALE,
-          display: { format: "unsigned", addressBase: 0, showAlias: false, copyAlias: false },
+          display: {
+            format: "unsigned",
+            addressBase: 0,
+            showAlias: false,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
         },
       });
       // no values yet in manual mode: force the grid with a poll update
@@ -310,7 +317,14 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
         connect: true,
         poll: {
           definition: { slaveId: 1, function: 1, startAddress: 0, quantity: 8, scanRateMs: 100 },
-          display: { format: "hex", addressBase: 0, showAlias: true, copyAlias: false },
+          display: {
+            format: "hex",
+            addressBase: 0,
+            showAlias: true,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
         },
       });
       h.advance(200);

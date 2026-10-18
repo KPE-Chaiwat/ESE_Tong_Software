@@ -1,4 +1,4 @@
-import { IpcError } from "@/shared/ipc/errors";
+﻿import { IpcError } from "@/shared/ipc/errors";
 import {
   createFakeModbusMasterIpc,
   type FakeModbusMasterIpc,
@@ -611,10 +611,24 @@ describe("commands", () => {
       await store.getState().setView({ aliases: [{ address: 0, alias: "Tank top" }] });
       expect(store.getState().config?.aliases).toEqual([{ address: 0, alias: "Tank top" }]);
       await store.getState().setView({
-        display: { format: "hex", addressBase: 1, showAlias: false, copyAlias: true },
+        display: {
+          format: "hex",
+          addressBase: 1,
+          showAlias: false,
+          copyAlias: true,
+          swapBytes: false,
+          reverseWords: false,
+        },
       });
       expect(ipc.callsOf("setPollView").at(-1)?.[1]).toEqual({
-        display: { format: "hex", addressBase: 1, showAlias: false, copyAlias: true },
+        display: {
+          format: "hex",
+          addressBase: 1,
+          showAlias: false,
+          copyAlias: true,
+          swapBytes: false,
+          reverseWords: false,
+        },
       });
       // the optimistic config kept the aliases
       expect(store.getState().config?.aliases).toEqual([{ address: 0, alias: "Tank top" }]);

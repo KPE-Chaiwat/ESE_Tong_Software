@@ -3,7 +3,7 @@
 /**
  * A native window placement in logical pixels plus the monitor name (DES-002 2.13).
  */
-export type WindowPlacement = { x: number, y: number, width: number, height: number, maximized: boolean, 
+export type WindowPlacement = { x: number, y: number, width: number, height: number, maximized: boolean,
 /**
  * `MonitorInfo.name` of the monitor the window was on.
  */

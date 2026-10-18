@@ -1,0 +1,21 @@
+# FE-005 Configurable value color rules
+
+Revision 1, 2026-10-18. Upstream DES-005 / REQ-005 and DES-006 numeric model. Downstream CHK-005. All tasks pending; BE-005/006 stable generated DTO and atomic validation contract prerequisite for IPC integration.
+
+Owner amendment, 2026-10-18: add custom background/text color pickers beside the three presets, live Preview, readable-pair validation and custom fill in raw, scaled and combined cells. Old rules without colors retain preset styling; marker and stale/out-of-range precedence stay unchanged.
+
+Owner correction, 2026-10-18: add a row context action that creates or reopens an Always rule for that register. Show Single register scope and one address input, hide threshold for Always, and keep rule matches limited to the addressed live cell.
+
+Owner report, 2026-10-18: **Value color rules…** from a row must also default to that register for conditional rules. Reopen an existing conditional rule for the address; when the poll has one whole-poll rule, narrow it in the draft to the clicked register. Preserve the separate setup action for poll-wide editing. Prevent native text-selection highlights on read-only numeric cells from hiding custom rule colors.
+
+| Task | Goal / components | States / store unit | Acceptance |
+|---|---|---|---|
+| 01 | Pure threshold grammar/validation and typed comparison evaluator | No store; integer64 BigInt or finite Number domain; ordered rule list and cell source inputs | All comparisons/endpoints, exact 2^53/u64 cases, nonfinite exclusion even Not equals, no formatted-string comparison; DES validation messages exact |
+| 02 | Derived cell sources and eligibility | poll-data / poll-scale logic: derive `{address, rawNumeric, scaledNumeric, visibleNumeric, freshness}` from existing data/config | Displayed follows each column; explicit source affects eligible visible numeric cells; clamp before comparison, round after comparison; incomplete/paused/stale/missing suppress matches |
+| 03 | Applied rules integration into poll view | Existing pollStore: mirrored applied rules from config, pending view mutation; applyRules / applyFromConfig; no independent connection state | One atomic setView call; acknowledge before Modified; reject leaves previous applied list; rule changes reevaluate existing snapshot with zero requests; readings never dirty profile |
+| 04 | Modal RuleEditor and PollSetup summary | ruleDraftStore factory `{draftRules, selectedDraftId, errors, dirty, pending}`; add/edit/move/enable/remove/reset/validate/apply/cancel/hydrate | 16 total limit, all entries validated, English fields/errors, range/base conversion, draft changes leave applied evaluation untouched; Apply/Cancel/IPC failure and focus recovery per DES |
+| 05 | ValueCell marker, palette, detail and status composition | Derived matched-rule result only, no persisted match store; detail state in existing grid UI | Lime/Neutral/Warning choices only; visible marker and accessible condition; out-of-range fill wins with separate rule badge; selection/focus remain legible; no sample-frequency live announcements |
+| 06 | Host handoff, profile/duplicate and mode integration | Existing pollViewUiStore stores rule draft/error handoff; existing profiles/config stores carry validated DTO | Open draft survives host transfer; old profiles no rules; rules round-trip as ordered strings; incompatible integer64 transition rejects atomically; Scaled rules retained inactive in combined/bits |
+| 07 | Performance, regression and implementation handoff | Memoized per-row evaluation keyed by raw snapshot, applied scale/rules/interpretation/freshness; no timers | Unchanged numeric rows do not rerender merely for unrelated rows; at most 16 rule checks per eligible value cell; 125/100-ms baseline and both hosts pass CHK-005 |
+
+Pure utilities and every new store factory receive boundary/error tests. UI tests cover markers, focus, validation and failure handling. Use fake IPC to assert no polling/writing on rule edits; real QA records unchanged wire traffic. Coordinate one workspace pnpm check per round and user-visible CHANGELOG entry under Unreleased during implementation. No direct Tauri imports outside shared/ipc; no manual generated-binding edits.

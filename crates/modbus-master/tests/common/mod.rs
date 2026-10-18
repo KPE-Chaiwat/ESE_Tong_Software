@@ -374,6 +374,7 @@ pub fn input(name: &str, definition: PollDefinition) -> PollConfigInput {
         name: name.into(),
         definition,
         display: DisplaySettings::default(),
+        color_rules: Vec::new(),
         scale: None,
         scale_overrides: vec![],
         value_columns: ValueColumns::Raw,

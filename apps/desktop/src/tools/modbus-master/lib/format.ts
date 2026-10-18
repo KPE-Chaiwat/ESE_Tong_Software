@@ -3,6 +3,12 @@ import type { ValueFormat } from "@/shared/ipc/modbus-master.types";
 export const VALUE_FORMATS: readonly ValueFormat[] = ["unsigned", "signed", "hex", "binary"];
 
 export const VALUE_FORMAT_LABELS: Record<ValueFormat, string> = {
+  signed32: "Signed 32-bit",
+  unsigned32: "Unsigned 32-bit",
+  float32: "Float 32-bit",
+  signed64: "Signed 64-bit",
+  unsigned64: "Unsigned 64-bit",
+  float64: "Float 64-bit (Double)",
   unsigned: "Unsigned",
   signed: "Signed",
   hex: "Hex",
@@ -21,6 +27,8 @@ export function formatValue(raw: number, fmt: ValueFormat): string {
       return `0x${u16.toString(16).toUpperCase().padStart(4, "0")}`;
     case "binary":
       return u16.toString(2).padStart(16, "0").match(/.{4}/g)?.join(" ") ?? "";
+    default:
+      return String(u16);
   }
 }
 

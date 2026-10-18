@@ -3,19 +3,19 @@
 /**
  * Traffic counters, owned by the backend (BE-001 Q-07).
  */
-export type Counters = { 
+export type Counters = {
 /**
  * Requests written to the link (polls and writes, including broadcasts).
  */
-requests: number, 
+requests: number,
 /**
  * Valid replies, including exception replies.
  */
-responses: number, 
+responses: number,
 /**
  * Exception replies plus bad responses.
  */
-errors: number, 
+errors: number,
 /**
  * Requests without a reply within the timeout.
  */

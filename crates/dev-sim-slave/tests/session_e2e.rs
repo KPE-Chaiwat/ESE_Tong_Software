@@ -112,6 +112,7 @@ async fn session_reaches_every_state_against_the_simulator() {
                     scan_rate_ms: 50,
                 },
                 display: DisplaySettings::default(),
+                color_rules: Vec::new(),
                 scale: None,
                 scale_overrides: vec![],
                 value_columns: ValueColumns::Raw,

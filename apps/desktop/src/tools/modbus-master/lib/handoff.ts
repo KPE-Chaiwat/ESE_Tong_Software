@@ -26,7 +26,47 @@ export const scaleDraftSchema = z.object({
   fields: z.record(z.string(), z.unknown()),
 });
 
+const colorRuleSchema = z
+  .object({
+    name: z.string(),
+    enabled: z.boolean(),
+    range: z.object({ start: z.number(), end: z.number() }).nullable(),
+    source: z.enum(["displayed", "raw", "scaled"]),
+    comparison: z.enum([
+      "equals",
+      "notEquals",
+      "lessThan",
+      "lessThanOrEqual",
+      "greaterThan",
+      "greaterThanOrEqual",
+      "always",
+      "between",
+    ]),
+    threshold: z.string(),
+    upperThreshold: z.string().nullable(),
+    highlight: z.enum(["lime", "neutral", "warning"]),
+    colors: z.object({ background: z.string(), foreground: z.string() }).nullable().optional(),
+  })
+  .transform(({ colors, ...rule }) => (colors === undefined ? rule : { ...rule, colors }));
 export const handoffSchema = z.object({
+  groupWidth: z.number().int().min(1).max(4).optional(),
+  inspectedGroupAddress: z.number().int().nullable().optional(),
+  ruleDraft: z
+    .object({
+      entries: z.array(
+        z.object({
+          id: z.string(),
+          rule: colorRuleSchema,
+          rangeTexts: z.object({ start: z.string(), end: z.string() }).optional(),
+        }),
+      ),
+      selected: z.string().nullable(),
+      dirty: z.boolean(),
+      errors: z.record(z.string(), z.string()),
+      error: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
   version: z.literal(1),
   setupOpen: z.boolean(),
   /** The user opened the setup in compact mode (a local override). */
@@ -44,6 +84,15 @@ export const handoffSchema = z.object({
   }),
   pollDraft: pollDraftSchema.nullable(),
   scaleDraft: scaleDraftSchema.nullable(),
+  interpretationDraft: z
+    .object({
+      format: z.string(),
+      swapBytes: z.boolean(),
+      reverseWords: z.boolean(),
+      error: z.string().nullable(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export type PollViewHandoffV1 = z.infer<typeof handoffSchema>;

@@ -1,4 +1,4 @@
-// Regression tests for REV-002 and REV-003 bug classes that the legacy window had and the new
+﻿// Regression tests for REV-002 and REV-003 bug classes that the legacy window had and the new
 // connection window must keep (REV-006 m-10). Each describe names the finding.
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { sessionReason } from "@/shared/ipc/modbus-master.fake";
@@ -86,7 +86,15 @@ describe("REV-002 m7: the session buttons wait for the snapshot", () => {
           {
             name: "Kept",
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 5, scanRateMs: 100 },
-            display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+            display: {
+              format: "unsigned",
+              addressBase: 0,
+              showAlias: true,
+              copyAlias: false,
+              swapBytes: false,
+              reverseWords: false,
+            },
+            colorRules: [],
             scale: null,
             scaleOverrides: [],
             valueColumns: "raw",

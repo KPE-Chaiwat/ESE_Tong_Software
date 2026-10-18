@@ -4,7 +4,7 @@ import type { PollSummary } from "./PollSummary";
 /**
  * Payload of `PollListChanged`.
  */
-export type PollList = { 
+export type PollList = {
 /**
  * Every poll, in list order.
  */

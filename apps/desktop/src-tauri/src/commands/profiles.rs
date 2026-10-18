@@ -76,14 +76,15 @@ pub async fn profiles_get(
 pub async fn profiles_save(
     state: State<'_, AppState>,
     tool_id: String,
-    profile: Profile,
+    profile: serde_json::Value,
     overwrite: bool,
 ) -> AppResult<()> {
     let store = store_for(&state, &tool_id)?;
+    let profile = super::value_inputs::profile(profile)?;
     // Permissive for the connection (a half-edited form can be saved); the poll list, names,
     // aliases and minimizedOrder must be valid.
     check_profile(&profile)
-        .map_err(|p| AppError::new(AppErrorCode::Validation, p.message).with_field(p.field))?;
+        .map_err(|p| AppError::new(AppErrorCode::InvalidProfile, p.message).with_field(p.field))?;
     let document =
         encode_profile(&profile).map_err(|e| AppError::new(AppErrorCode::Internal, e))?;
     blocking(move || {

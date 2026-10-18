@@ -4,15 +4,15 @@
  * Workspace settings saved in a profile (DES-002 6.1). `minimizedOrder` holds indexes into
  * `Profile.polls`.
  */
-export type WorkspaceProfile = { tileMode: boolean, compact: boolean, 
+export type WorkspaceProfile = { tileMode: boolean, compact: boolean,
 /**
  * 220-400, default 280.
  */
-sidebarWidth: number, sidebarCollapsed: boolean, trafficExpanded: boolean, 
+sidebarWidth: number, sidebarCollapsed: boolean, trafficExpanded: boolean,
 /**
  * px; null = the 35% default.
  */
-trafficHeight: number | null, 
+trafficHeight: number | null,
 /**
  * Indexes into `polls`, in minimized-bar order.
  */

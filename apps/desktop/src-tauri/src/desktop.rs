@@ -153,6 +153,27 @@ pub trait Desktop: Send + Sync {
     fn show(&self, label: &str);
     /// Destroys a window without a close request (no S6).
     fn destroy(&self, label: &str);
+    /// Destroy without prompting and verify absence.
+    /// # Errors
+    /// OS destruction failed or the window still exists.
+    fn destroy_checked(&self, label: &str) -> Result<(), String> {
+        self.destroy(label);
+        if self.exists(label) {
+            Err("The poll window could not be closed. Retry window cleanup.".into())
+        } else {
+            Ok(())
+        }
+    }
+    /// Reveal and report native failures.
+    /// # Errors
+    /// Window cannot be shown.
+    fn reveal_checked(&self, label: &str) -> Result<(), String> {
+        if self.reveal(label) {
+            Ok(())
+        } else {
+            Err("The poll window could not be shown.".into())
+        }
+    }
 }
 
 /// Frame (outer minus client size, logical px) assumed when a created poll window cannot
@@ -501,6 +522,22 @@ pub struct NativeSpot {
     pub maximized: bool,
 }
 
+/// Save the intended placement even when native creation fails.
+#[must_use]
+pub fn placement_for_spot(desktop: &dyn Desktop, spot: NativeSpot) -> Option<WindowPlacement> {
+    let monitors = desktop.monitors();
+    let m = &monitors[monitor_at(spot.outer.center(), &work_areas(&monitors))?];
+    let r = to_logical(spot.outer, m.scale).to_logical();
+    Some(WindowPlacement {
+        x: r.x,
+        y: r.y,
+        width: r.width,
+        height: r.height,
+        maximized: spot.maximized,
+        monitor: m.name.clone(),
+    })
+}
+
 /// DES-002 2.13: a saved placement whose monitor exists and that overlaps its work area by
 /// 100 x 60 px is used as is.
 fn restored(saved: Option<&WindowPlacement>, monitors: &[MonitorGeom]) -> Option<NativeSpot> {
@@ -735,6 +772,9 @@ pub mod fake {
         /// "show <label>", "destroy <label>".
         pub calls: Mutex<Vec<String>>,
         pub fail_create: Mutex<bool>,
+        pub fail_create_label: Mutex<Option<String>>,
+        pub fail_destroy: Mutex<bool>,
+        pub fail_reveal: Mutex<bool>,
         pub fail_place: Mutex<bool>,
         /// The window that has the focus (in front): the last one `reveal` found.
         pub focused: Mutex<Option<String>>,
@@ -931,7 +971,7 @@ pub mod fake {
             if let Some(hook) = &self.on_create {
                 hook(label);
             }
-            if *lock(&self.fail_create) {
+            if *lock(&self.fail_create) || lock(&self.fail_create_label).as_deref() == Some(label) {
                 return Err("cannot create the window".into());
             }
             let primary = self
@@ -972,6 +1012,9 @@ pub mod fake {
 
         fn reveal(&self, label: &str) -> bool {
             self.call("reveal", label);
+            if *lock(&self.fail_reveal) {
+                return false;
+            }
             let mut windows = lock(&self.windows);
             let Some(w) = windows.get_mut(label) else {
                 return false;
@@ -991,7 +1034,9 @@ pub mod fake {
 
         fn destroy(&self, label: &str) {
             self.call("destroy", label);
-            lock(&self.windows).remove(label);
+            if !*lock(&self.fail_destroy) {
+                lock(&self.windows).remove(label);
+            }
         }
     }
 }

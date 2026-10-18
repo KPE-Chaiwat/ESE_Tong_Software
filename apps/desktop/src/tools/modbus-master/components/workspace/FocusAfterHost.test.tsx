@@ -66,7 +66,7 @@ describe("after a view closes", () => {
     expect(frame(a).contains(document.activeElement)).toBe(true);
   });
 
-  it("Delete of the last sub-window: the focus goes to the poll list", async () => {
+  it("Delete of the last sub-window: the focus goes to the surviving poll Show target", async () => {
     h = await renderWindow();
     const a = await h.addPoll("A");
     await h.addPoll("B");
@@ -78,6 +78,7 @@ describe("after a view closes", () => {
     await h.user.click(within(dialog).getByRole("button", { name: "Delete poll" }));
     await waitFor(() => expect(document.querySelector(`[data-subwindow="${a}"]`)).toBeNull());
     await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    expect(document.activeElement).toHaveAttribute("data-poll-show");
     expect(document.activeElement?.closest("[data-region]")?.getAttribute("data-region")).toBe(
       "polls",
     );

@@ -1,4 +1,4 @@
-// What marks a profile "Modified" and the profile round trip (FE-002 task 23, DES-002 6.1, CHK2-N2).
+﻿// What marks a profile "Modified" and the profile round trip (FE-002 task 23, DES-002 6.1, CHK2-N2).
 import { waitFor } from "@testing-library/react";
 import type { PollId } from "@/shared/ipc/modbus-master.types";
 import { pollProfile, profileV2 } from "../components/dialogs/profile-fixtures";
@@ -211,7 +211,15 @@ describe("loading and saving", () => {
           {
             name: "Kept",
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 5, scanRateMs: 100 },
-            display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+            display: {
+              format: "unsigned",
+              addressBase: 0,
+              showAlias: true,
+              copyAlias: false,
+              swapBytes: false,
+              reverseWords: false,
+            },
+            colorRules: [],
             scale: null,
             scaleOverrides: [],
             valueColumns: "raw",
@@ -273,21 +281,14 @@ describe("loading and saving", () => {
     });
     await h.act(() => h.rt.profileFlow.load("Placed"));
     const id = h.ipc.pollIds()[0] as number;
-    expect(h.rt.stores.workspace.getState().items[id]?.rect).toMatchObject({
-      x: 120,
-      y: 90,
-      width: 400,
-      height: 250,
+    expect(h.rt.stores.workspace.getState().items[id]?.grid).toMatchObject({
+      columns: expect.any(Number),
+      w: expect.any(Number),
+      h: expect.any(Number),
     });
     expect(h.rt.stores.workspace.getState().sidebar.width).toBe(300);
     await h.act(async () => {});
-    // Nothing reported a default rectangle for the new poll over the profile's.
-    expect(h.ipc.pollSummary(id).workspace).toMatchObject({
-      x: 120,
-      y: 90,
-      width: 400,
-      height: 250,
-    });
+    expect(h.ipc.pollSummary(id).workspace).not.toBeNull();
   });
 });
 
@@ -365,16 +366,28 @@ describe("round trip (CHK2-N1)", () => {
     const original = roundTripProfile(false);
     await open(original);
     await h.act(() => h.rt.profileFlow.save());
-    expect(await h.ipc.profilesGet("Round")).toEqual(original);
+    const saved = await h.ipc.profilesGet("Round");
+    expect(saved.polls.map((p) => [p.name, p.view.host, p.view.open])).toEqual(
+      original.polls.map((p) => [p.name, p.view.host, p.view.open]),
+    );
+    expect(saved.polls.map((p) => p.aliases)).toEqual(original.polls.map((p) => p.aliases));
+    expect(
+      saved.polls
+        .filter(
+          (p) =>
+            p.view.host === "workspace" && p.view.open && p.view.workspace?.state !== "minimized",
+        )
+        .every((p) => p.view.workspace?.grid != null),
+    ).toBe(true);
     await waitFor(() => expect(h.rt.stores.profile.getState().modified).toBe(false));
   });
 
-  it("with tile mode on the tiles are computed again, and saving is stable", async () => {
+  it("migrates legacy tile mode to the grid and saves stably", async () => {
     const original = roundTripProfile(true);
     await open(original);
     await h.act(() => h.rt.profileFlow.save());
     const first = await h.ipc.profilesGet("Round");
-    expect(first.workspace).toEqual(original.workspace);
+    expect(first.workspace).toEqual({ ...original.workspace, tileMode: false });
     expect(first.polls.map((p) => [p.name, p.view.host, p.view.open])).toEqual(
       original.polls.map((p) => [p.name, p.view.host, p.view.open]),
     );

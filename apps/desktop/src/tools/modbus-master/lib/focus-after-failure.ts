@@ -33,7 +33,7 @@ function find(target: FocusTarget, o: FocusAfterFailure, scope: ParentNode): HTM
       return scope.querySelector<HTMLElement>('button[aria-label="Poll actions"]');
     case "sidebarRow":
       return doc.querySelector<HTMLElement>(
-        `[data-region="sidebar"] [data-slot="poll-row"][data-poll-id="${o.pollId}"]`,
+        `[data-region="sidebar"] [data-slot="poll-row"][data-poll-id="${o.pollId}"] [data-poll-show]`,
       );
     case "titleBar":
       return scope.querySelector<HTMLElement>('[data-slot="title-bar"]');

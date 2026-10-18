@@ -24,7 +24,7 @@ test.describe("(h) profiles, restart, migration", () => {
     const file = writeProfile(desktop, "Boiler-PLC", V1);
     const before = fs.readFileSync(file, "utf8");
     await openProfile(mm, "Boiler-PLC");
-    await expect(mm.page.getByText('This profile was saved by an earlier version. Its poll is now "Poll 1". Saving stores it in the new format, which earlier versions cannot open.')).toBeVisible();
+    await expect(mm.page.getByText("This profile was saved by an earlier version. Saving stores it in the new format, which earlier versions cannot open.")).toBeVisible();
     await expect(mm.page.getByRole("button", { name: "Dismiss" })).toBeVisible();
     await expect(mm.row("Poll 1")).toBeVisible();
     const id = await mm.idByName("Poll 1");

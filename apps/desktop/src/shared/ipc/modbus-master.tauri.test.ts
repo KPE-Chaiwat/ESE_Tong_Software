@@ -73,6 +73,31 @@ beforeEach(() => {
 
 describe("Tauri facade: command names and argument keys (DES-002 8.2)", () => {
   it.each([
+    [
+      "preparePollBulk",
+      () => ipc.preparePollBulk("duplicate", [1, 3]),
+      "mm_prepare_poll_bulk",
+      { action: "duplicate", pollIds: [1, 3] },
+    ],
+    [
+      "duplicatePolls",
+      () => ipc.duplicatePolls("plan"),
+      "mm_duplicate_polls",
+      { planToken: "plan" },
+    ],
+    ["removePolls", () => ipc.removePolls("plan"), "mm_remove_polls", { planToken: "plan" }],
+    [
+      "ackPollBulkReady",
+      () => ipc.ackPollBulkReady("operation", 3, 7, false),
+      "mm_ack_poll_bulk_ready",
+      { operationToken: "operation", pollId: 3, viewToken: 7, ready: false },
+    ],
+    [
+      "recoverPollBulkWindows",
+      () => ipc.recoverPollBulkWindows("operation"),
+      "mm_recover_poll_bulk_windows",
+      { operationToken: "operation" },
+    ],
     ["connect", () => ipc.connect(tcp), "mm_connect", { config: tcp }],
     ["cancelConnect", () => ipc.cancelConnect(), "mm_cancel_connect", undefined],
     ["disconnect", () => ipc.disconnect(), "mm_disconnect", undefined],

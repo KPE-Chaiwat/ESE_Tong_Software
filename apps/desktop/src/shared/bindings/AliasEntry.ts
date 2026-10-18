@@ -4,7 +4,7 @@
  * An alias for one protocol address (DES-002 2.3.5). Lists are sorted by address with
  * unique addresses, at most 2000 per poll.
  */
-export type AliasEntry = { address: number, 
+export type AliasEntry = { address: number,
 /**
  * 1-32 characters, no leading/trailing space, no control characters.
  */

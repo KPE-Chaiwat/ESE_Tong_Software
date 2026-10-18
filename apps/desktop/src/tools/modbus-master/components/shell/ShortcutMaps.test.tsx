@@ -1,4 +1,4 @@
-// The keyboard map of DES-002 3.1, one test per row and host (FE-002 task 24): W1 outside the
+﻿// The keyboard map of DES-002 3.1, one test per row and host (FE-002 task 24): W1 outside the
 // sub-windows, W1 in the scope of a sub-window, and a native poll window. Keys are dispatched on the
 // element that has the focus, like the browser does, and `defaultPrevented` tells whether the
 // browser default was suppressed.
@@ -111,10 +111,10 @@ describe("W1 outside the sub-windows (DES-002 3.1)", () => {
     await waitFor(() => expect(h.ipc.callsOf("setCompactMode")).toEqual([[true]]));
   });
 
-  it("Ctrl+Shift+T tiles, Ctrl+Shift+C cascades, Ctrl+F6 cycles", async () => {
+  it("Ctrl+Shift+T resets the grid, Ctrl+F6 cycles", async () => {
     const { a, b } = await connected();
     press("T", { ctrl: true, shift: true });
-    expect(h.rt.stores.workspace.getState().tileMode).toBe(true);
+    expect(h.rt.stores.workspace.getState().items[a]?.grid).toMatchObject({ x: 0, y: 0 });
     press("C", { ctrl: true, shift: true });
     expect(h.rt.stores.workspace.getState().tileMode).toBe(false);
     await h.act(() => h.rt.stores.workspace.getState().activate(a));
@@ -201,12 +201,16 @@ describe("W1 outside the sub-windows (DES-002 3.1)", () => {
 
   it("Delete on the selected sidebar row asks Delete poll?, F2 renames it", async () => {
     const { a } = await connected();
-    const row = screen.getAllByRole("option")[0] as HTMLElement;
+    const row = screen
+      .getByRole("list", { name: "Polls" })
+      .querySelector("[data-poll-show]") as HTMLElement;
     row.focus();
     press("F2");
     expect(await screen.findByRole("textbox")).toHaveValue("A");
     await h.user.keyboard("{Escape}");
-    (screen.getAllByRole("option")[0] as HTMLElement).focus();
+    (
+      screen.getByRole("list", { name: "Polls" }).querySelector("[data-poll-show]") as HTMLElement
+    ).focus();
     press("Delete");
     expect(await screen.findByRole("alertdialog", { name: "Delete poll?" })).toBeVisible();
     expect(a).toBeGreaterThan(0);
@@ -360,7 +364,9 @@ describe("W1 in the scope of a sub-window (DES-002 3.1)", () => {
 
   it("F6 from a row of the poll list goes on to the workspace, not back to the toolbar", async () => {
     await connected();
-    (screen.getAllByRole("option")[0] as HTMLElement).focus();
+    (
+      screen.getByRole("list", { name: "Polls" }).querySelector("[data-poll-show]") as HTMLElement
+    ).focus();
     press("F6");
     expect(document.activeElement?.closest("[data-region]")?.getAttribute("data-region")).toBe(
       "workspace",
@@ -445,7 +451,15 @@ describe("native poll window (DES-002 3.1, W2 column)", () => {
           {
             name: `Poll ${i + 1}`,
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 1, scanRateMs: 100 },
-            display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+            display: {
+              format: "unsigned",
+              addressBase: 0,
+              showAlias: true,
+              copyAlias: false,
+              swapBytes: false,
+              reverseWords: false,
+            },
+            colorRules: [],
             scale: null,
             scaleOverrides: [],
             valueColumns: "raw",

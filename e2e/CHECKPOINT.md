@@ -1,5 +1,21 @@
 # QA checkpoint (qa-tester), overwritten after each step
 
+## Round 9 (REPORT-028 per-register colors), 2026-10-18 — complete
+- `tests-integration/29-custom-rule-colors.spec.ts` and `30-register-colors.spec.ts`: 2/2 PASS against normal embedded debug executable SHA256 `4fb0073e271c8403ee26ca4720852f0d90ada39a5b4dc3727ea84fe6046fe37f`. Separate colors on registers 11/12, unaffected next row, profile save and edit-existing path verified.
+
+## Round 8 (REPORT-027 low-contrast custom colors), 2026-10-18 — complete
+- `tests-integration/29-custom-rule-colors.spec.ts`: 1/1 PASS against normal embedded debug executable SHA256 `aed9d4ebed80df0d6a0ca786e6b100a555370c6caae9a0ef23633fc9b25446d1`. Low-contrast blue/brown pair showed the warning, applied to the live value cell, and survived profile save.
+
+## Round 7 (REPORT-026 custom rule colors), 2026-10-18 — complete
+- Focused real Tauri/WebView2 + TCP simulator scenario `tests-integration/29-custom-rule-colors.spec.ts`: 1/1 PASS against the final bundled debug executable. Native custom-color inputs, Preview, live raw cell CSS and schema 5 profile save all passed.
+- `pnpm test:web` 153/153 files and 3,459/3,459 tests; `pnpm test:rust` exit0; typecheck, Rust/web lint, build:web and bindings:check passed. Normal embedded executable SHA256 `1e8dc27179ff42feaee12adc0909f0e768aae00ef645d075f5ac4bdd1a59505e`. Fixture cleaned its processes. No commit or installer.
+
+## Round 6 (REPORT-025 REQ-008 GridStack), 2026-10-18 — complete
+- Normal embedded-frontend debug build after `pnpm check`, SHA256 `985d9f0ddfba165c89d6dc694733b47f31bb0a0cc9b637c95dc3f267cb8f464d`. The check's Rust test compilation overwrites the debug exe with a dev-server variant; build normal last.
+- `tests-integration/28-gridstack.spec.ts`: 1/1 PASS, exit0, real Tauri/WebView2 + TCP simulator. Eight live Poll widgets: no overlap; OS window width change changed column count without overlap; title drag and southeast resize persisted cells; Workspace-only overflow scroll; schema 4 Save/Open restored grid; Pop out removed the widget, Dock restored it.
+- Browser fake-IPC: 16 Polls in 8 rows, no overlap, Workspace scrolls to offscreen Poll, document does not scroll. Full `pnpm check` exit0 (447 Rust pass/1 ignored, 153 frontend files/3,457 tests).
+- CLEANUP: test fixture stopped its app and simulator; owned fake-IPC Vite server stopped. Disk available 6.29 GiB after build/QA (>3 GiB guard). No cache deletion or commit.
+
 ## Round: REPORT-008 TARGETED integration re-run after the REPORT-007 fixes (D6-D9, D3 oracle), started 2026-10-17
 Scope: only the six items of the brief (F17/D6, K5+K8b/D7, R8-R11/D8, F8+F16/D9, D3 with os-timer sim, quick regression R7/D4/D10 S=20,100). NOT the whole integration project.
 Report text is returned in the final message (to be saved as docs/qa/REPORT-008-targeted-rerun.md). Previous: docs/qa/REPORT-007-integration-after-fixes.md.
@@ -50,3 +66,24 @@ Report text is returned in the final message (to be saved as docs/qa/REPORT-008-
 - Results: D11 PASS (band 0 mode changes at outer 840-860, drag 1 transition per crossing, idle 0, threshold 816/817 = 639.2/640 css, sweep 266 steps 0 failures, native min 2 complete rows, rows 2). D12 PASS (Disconnect right 948 <= 960, h 56, no clipping 960..1200 css, profile label from 1100 css). R7a pass, Thai Ctrl+\ (W1 sidebar/grid + native) pass.
 - Run commands: same as round 2 with ESEFACT_APP_EXE=...normal3...; logs $TEMP/run-d11.log, run-f17.log, run-d12.log.
 - CLEANUP done: no esefact processes, ports 1420/5020/5021 free, %TEMP%\esefact-it-tools deleted. ALL DONE.
+
+## Round 4 (REPORT-011 REQ-004..007), 2026-10-18 — running
+- PM authorized build/run after full pnpm check passed. Normal debug embedded frontend build: `pnpm.cmd --filter @esefact/desktop tauri build --debug --no-bundle`, exit0, 32.89s Rust build. App SHA256 `ae0bf4d137a76e0d9ac3131f9925b09828374ab53665f49eeb052f831ae60284`; simulator is existing normal target/debug exe (2026-10-18 10:47).
+- Disk guard >=3 GB; available bytes before build 10,768,117,760; after build 10,597,748,736.
+- New spec `tests-integration/22-report011.spec.ts`: live exact combined/rule/freshness/native, bulk duplicate/delete native/profile/sidebar, migration/rejection. Local FeatureMm adapts semantic Polls list introduced by REQ-004. No fake IPC.
+- Run: `pnpm.cmd exec playwright test --project=integration tests-integration/22-report011.spec.ts --workers=1` from e2e (PATH includes corepack, ESEFACT_BINARY_LABEL=report011-normal). Apps/sims use free ports and fixture-owned temp data; no Vite server.
+- Pending: run outcomes, any targeted retest, report and cleanup. No bulk window create/destroy failure hook exists in current dev-hooks; those failure paths cannot be injected in this real build and remain explicit skips.
+- Unsandboxed approved retry resolves startup restriction (sandbox attempts: no page targets, ECONNRESET, CDP endpoint absent). Feature scenario1 PASS: 10 numeric UI/OS clipboard vectors, 32-bit orders, exact rule boundary, pause/timeout/exception/recovery, no paused display-edit traffic, native handoff. Migration/rejection scenario PASS.
+- Bulk native copy/delete/cancel/focus passes until CHK7-A8 profile restore: file and post-load export have sidebarCollapsed=true, compact=false,width280; actual W1 toolbar shows Hide and full sidebar expanded. Reproduced; root notified; assertion retained, loaded-sidebar.png and saved/loaded JSON attached. Awaiting fix/retest plan. No product code edited.
+- Final correction: apparent sidebar restore defect was test workflow only: Open profile picker closes before the separate Disconnect and load confirmation. After completing confirmation and checking frontend id replacement, original collapse assertion passes. No product defect established.
+- FINAL run: 4/4 PASS, exit0, 24.6s, start2026-10-18T04:20:07.242Z; results expected4/unexpected0/flaky0. Extended exact-threshold Save/reopen/reconnect still matches9007199254740993 in restored native view; full persisted-setting comparison after bulk roundtrip passes. E2E tsc and Biome clean. Report: docs/qa/REPORT-011.md (per-item partial/skipped matrix; no whole-checklist sign-off).
+- Evidence preserved: e2e/test-results/report011-final-results.json and e2e/test-results/evidence/report011/ (numeric/native screenshot, sidebar loaded/bulk roundtrip/minimum screenshots, simulator/app logs). Original default reporters also retain latest final run. The extracted exact-native and minimum screenshots were visually inspected.
+- CLEANUP complete: no owned desktop/simulator processes, no listeners1420/5020/5021. Fixture data dirs removed; four known sandbox-startup remnants and regenerated esefact-it-tools removed with checked absolute TEMP paths/no reparse points. Disk ~10.59GB decimal (>3GB guard). No cache/target deletions, no product/config/STATUS/changelog edits, no commit by QA. Further QA remains as REPORT-011 lists, especially bulk window-failure injection (no approved hook), full vectors/validation, performance and manual hardware/accessibility matrix.
+
+## Round 5 (REPORT-013 bulk native fault recovery), 2026-10-18 — complete
+- Final debug dev-hooks build after reviewed native-exists guard, exit0, Rust12.25s; app SHA256 5e18f77fd65918721d3f0832b0c1e5ab700fe84e5722b26403f4038e8bb0f0e5. No per-package Cargo/cache deletion.
+- Spec tests-integration/23-report013.spec.ts, real Tauri/WebView2 + TCP simulator. Final approved unsandboxed run 4/4 PASS, exit0,27.5s, start2026-10-18T04:30:58.327Z. E2E typecheck/Biome clean.
+- PASS: bulkCreate skip1, bulkPlace, bulkShow preserve committed definitions and same-id Show recovery; exact injected messages and OS W1 focus; source views live, no extra copies after double click. bulkDestroy selection workspace A before native B proves hook ignores absent native label; both removed, C polling/focused, cleanup closes B, notice clears after close acknowledgement retry, new poll works.
+- Observer wrapping native invoke was removed (nonwritable property); typed commit/stage/token/count contract remains Rust/fake evidence, UI/native/export outcomes are real-window evidence. No confirmed product defect. CHK4-B6/C5 partial; no whole checklist sign-off.
+- Report docs/qa/REPORT-013.md; final results e2e/test-results/report013-final-results.json; extracted evidence e2e/test-results/evidence/report013/. Visual QA of recovered native/final W1 passed.
+- CLEANUP complete: no owned desktop/simulator processes, no listeners1420/5020/5021, five checked owned TEMP fixture/helper dirs removed. Free8,554,815,488 bytes (>3GB guard). Existing target/debug executable currently enables dev-hooks; rebuild normal before using a normal binary label or distribution. No commits/.codex edits.

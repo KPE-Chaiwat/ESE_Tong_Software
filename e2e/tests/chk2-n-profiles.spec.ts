@@ -278,7 +278,7 @@ test.describe("N profiles v2", () => {
     const id = await mm.idOf("Poll 1");
     await mm.expectDomRect(id, { x: 8, y: 8 });
     const notice = mm.page.getByText(
-      'This profile was saved by an earlier version. Its poll is now "Poll 1". Saving stores it in the new format, which earlier versions cannot open.',
+      "This profile was saved by an earlier version. Saving stores it in the new format, which earlier versions cannot open.",
     );
     await expect(notice).toBeVisible();
     await expect(mm.page.getByRole("button", { name: "Dismiss", exact: true })).toBeVisible();

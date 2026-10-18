@@ -124,7 +124,7 @@ describe("session start", () => {
     expect(stores().profile.getState().name).toBe("Boiler-PLC");
     expect(stores().prefs.getState()).toMatchObject({ compact: true, askOnPollClose: false });
     expect(stores().workspace.getState()).toMatchObject({
-      tileMode: true,
+      tileMode: false,
       sidebar: { width: 320, collapsed: true },
       traffic: { expanded: true, height: 260 },
     });

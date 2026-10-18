@@ -21,8 +21,8 @@
     "lint:rust": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings",
     "lint:web": "pnpm --filter @esefact/desktop lint",
     "test": "pnpm test:rust && pnpm test:web",
-    "test:rust": "cargo test --workspace",
-    "test:rust:nextest": "cargo nextest run --workspace",
+    "test:rust": "node scripts/test-rust.mjs",
+    "test:rust:nextest": "node scripts/test-rust.mjs --nextest",
     "test:web": "pnpm --filter @esefact/desktop test",
     "e2e": "pnpm --filter @esefact/e2e test",
     "check": "pnpm version:check && pnpm bindings:check && pnpm typecheck && pnpm lint && pnpm test"

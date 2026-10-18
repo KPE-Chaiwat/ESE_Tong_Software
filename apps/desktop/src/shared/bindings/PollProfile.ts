@@ -5,12 +5,13 @@ import type { PollDefinition } from "./PollDefinition";
 import type { PollViewPlacement } from "./PollViewPlacement";
 import type { ScaleOverride } from "./ScaleOverride";
 import type { ScaleSettings } from "./ScaleSettings";
+import type { ValueColorRule } from "./ValueColorRule";
 import type { ValueColumns } from "./ValueColumns";
 
 /**
  * One poll of a profile, in list order (DES-002 6.1).
  */
-export type PollProfile = { name: string, definition: PollDefinition, active: boolean, display: DisplaySettings, scale: ScaleSettings | null, scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns, 
+export type PollProfile = { name: string, definition: PollDefinition, active: boolean, display: DisplaySettings, colorRules: Array<ValueColorRule>, scale: ScaleSettings | null, scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns,
 /**
  * Sorted by address, unique addresses, at most 2000.
  */

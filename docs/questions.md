@@ -1,5 +1,12 @@
 # Open questions
 
+## Owner decisions for features 004-007 (2026-10-18)
+
+| Id | Topic | Decision | Where |
+|---|---|---|---|
+| D-005-01 | Color-rule numeric source | The owner confirmed that rules compare the value displayed in the table by default. PM default: Displayed follows the current numeric column; when both Raw and Scaled are visible, each value column uses its own source. Explicit Raw/Scaled source choices remain available. Comparisons use the numeric value before display rounding. | REQ-005 |
+| D-006-01 | Combined-register grouping | The owner confirmed sequential non-overlapping groups from the poll Start address: 2 registers for 32-bit and 4 for 64-bit, with no absolute-address alignment requirement. | REQ-006 |
+
 **Revision 12 (2026-10-17):**
 - Recorded the PM decisions after `docs/qa/REPORT-008-targeted-rerun-PARTIAL.md` (Results 1, 2, 3, 5 and "Open items") as D-002-36 to D-002-40 (DES-002 revision 12, CHK-002 revision 12, FE-002 revision 12 task 33).
 - Q-002-19 is closed by D-002-38 (the physical Backslash key rule replaces the revision 11 assumption).
@@ -238,3 +245,31 @@ None of these block FE-002; each is implemented with the conservative option sho
 | Q-BE2-04 | PT0 (a poll added while connected) has no "from" state. Should it emit `PollStateChanged`? | designer | No. The new poll's state arrives in `PollListChanged` (`PollSummary.status`); `PollStateChanged` is only sent for transitions PT1-PT7. |
 | Q-BE2-05 | A poll whose definition cannot run on the current link (slave 0 read on RTU, added while the last connection was TCP) when the connection comes up with `autoStartPoll`. | PM | It comes up `paused` (PT1) with `active` unchanged; Resume returns the slave 0 validation error. |
 | Q-BE2-06 | `dev-sim-slave` gained `fault ... unit=<id>` and logs `OVERLAP` when a request arrives before the previous reply. `docs/SETUP.md` section 4 is not the backend's to edit. | PM / devops | Documented in BE-002 "Final contract"; please copy the two lines into SETUP.md section 4. |
+
+## Feature 004 bulk operation contract (designer, 2026-10-18)
+
+| Id | Question | For | Design status |
+|---|---|---|---|
+| Q-004-01 (closed D-004-01) | Publish the BE-004 atomic bulk duplicate/delete contract: all-id/capacity/lifecycle validation, ordered source-to-copy results and one list commit, plus whether definitions committed when native creation/destruction fails, affected ids, recoverable host state and Show/retry route. How are affected native modal/precondition races rejected before commit? | PM / backend | DES-004 defines observable atomic definition UX; it deliberately does not choose a backend rollback algorithm. FE-004 tasks 3-4 wait for this contract; selection UI and REQ-007 can proceed. Window failures must preserve surviving definitions and distinguish recovery from reissuing mutation. No owner product decision is requested. |
+
+## Features 005/006 numeric persistence contracts (designer, 2026-10-18)
+
+| Id | Question | For | Design status |
+|---|---|---|---|
+| Q-005-01 (closed D-005-02) | Publish the BE-005 ordered max-16 rule DTO, threshold-as-decimal-string serialization, stable palette/source/operator enums, optional inclusive protocol range and atomic validation with interpretation. How are named-rule compatibility errors returned to the editor? | PM / backend | DES-005 defines frontend syntax and comparisons, including exact BigInt for integer64 and validation of disabled rules. FE-005 IPC integration waits for the generated contract; pure utility/editor work can proceed. No JSON Number conversion for 64-bit thresholds. |
+| Q-006-01 (closed D-006-02) | Publish BE-006 interpretation/order DTO and supported profile schema version with schema1/2 migration and rejection rules. Confirm view acknowledgment/host transfer preserve saved scales, aliases, rules and both swap flags, and snapshot identity prevents grouping old definitions. | PM / backend | DES-006 defines observable grouping/order/format/copy and atomic rejection on incompatible integer64 rules. PM chooses version and concrete serialization; FE-006 IPC integration waits for this contract. Migration retains existing 16-bit formats and defaults missing rules/order without rewriting a source file until Save. |
+
+### PM backend contract decisions (2026-10-18)
+
+| Id | Topic | Decision | Where |
+|---|---|---|---|
+| D-004-01 | Atomic bulk lifecycle; closes Q-004-01 | Prepare server snapshot plan for frozen confirmation; execute revalidates revisions and takes affected view readiness leases before one actor definition commit. Postcommit native failures never undo definitions: copies survive native/closed with Show recovery; deleted orphan windows get cleanup-only retry. One final authoritative list, typed committed result with affected ids, idempotent consumed token. No loop over existing single commands. | BE-004-bulk-poll-actions.md |
+| D-005-02 | Rule serialization and bounded exact validation | Ordered rules without persisted ids; local draft identities only. Decimal string thresholds max256 ASCII bytes; exact integer64 thresholds bounded to +/-18446744073709551615 validated in i128, frontend BigInt. Complete prospective interpretation+rules validated atomically, including disabled/dormant rules. Palette lime/neutral/warning; no runtime match persistence. | BE-005-value-color-rules.md |
+| D-006-02 | Shared new profile schema and interpretation DTO | One schema3 for both rules and interpretation; extend existing ValueFormat with six combined variants, add display.swapBytes/reverseWords booleans, require new fields in v3. Explicit legacy1/2 migration preserves old formats/scales/aliases and adds false swaps/empty rules without rewriting source. Schema>3 rejected; malformed v3 never silently defaults. Raw u16 streams unchanged, decode frontend only. | BE-006-combined-register-values.md |
+
+### Workspace GridStack decisions (owner, 2026-10-18)
+
+| Id | Topic | Decision | Where |
+|---|---|---|---|
+| D-008-01 | Workspace layout engine | Replace the floating Poll workspace entirely with GridStack. Polls in the workspace occupy non-overlapping grid cells. Native popped-out Poll windows remain separate. | REQ-008, DES-008 |
+| D-008-02 | Overflow | The Workspace may scroll vertically when Poll widgets exceed the visible height. No Poll may become unreachable below the fold. | REQ-008, DES-008 |

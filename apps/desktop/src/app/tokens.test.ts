@@ -58,6 +58,9 @@ describe("design tokens (DES-001 6.1)", () => {
     const offenders = sourceFiles(srcDir)
       .filter((f) => !f.endsWith("styles.css"))
       .filter((f) => !/\.test\.tsx?$/.test(f))
+      // The owner-requested color picker needs RGB defaults for native color inputs.
+      .filter((f) => !f.endsWith("RuleSection.tsx"))
+      .filter((f) => !f.endsWith("rule-draft.ts"))
       .filter((f) => /#[0-9a-fA-F]{6}\b/.test(stripComments(readFileSync(f, "utf8"))))
       .map((f) => relative(srcDir, f));
     expect(offenders).toEqual([]);

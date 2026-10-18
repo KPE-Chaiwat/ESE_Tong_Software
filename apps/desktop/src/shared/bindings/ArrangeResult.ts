@@ -3,11 +3,11 @@
 /**
  * Result of `mm_arrange_poll_windows`.
  */
-export type ArrangeResult = { 
+export type ArrangeResult = {
 /**
  * Windows placed (tiled or cascaded), 0 when the connection has no native window.
  */
-arranged: number, 
+arranged: number,
 /**
  * Windows that did not fit the grid and were cascaded on top (toast "{m} windows did
  * not fit and were cascaded.").

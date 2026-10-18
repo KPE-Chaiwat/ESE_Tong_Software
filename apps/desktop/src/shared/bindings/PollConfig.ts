@@ -5,16 +5,17 @@ import type { PollDefinition } from "./PollDefinition";
 import type { PollId } from "./PollId";
 import type { ScaleOverride } from "./ScaleOverride";
 import type { ScaleSettings } from "./ScaleSettings";
+import type { ValueColorRule } from "./ValueColorRule";
 import type { ValueColumns } from "./ValueColumns";
 
 /**
  * The stored configuration of a poll. Payload of `PollConfigChanged`.
  */
-export type PollConfig = { pollId: PollId, name: string, definition: PollDefinition, 
+export type PollConfig = { pollId: PollId, name: string, definition: PollDefinition,
 /**
  * Run intent (Resume = true, Pause = false). Never marks the profile modified.
  */
-active: boolean, display: DisplaySettings, scale: ScaleSettings | null, scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns, 
+active: boolean, display: DisplaySettings, colorRules: Array<ValueColorRule>, scale: ScaleSettings | null, scaleOverrides: Array<ScaleOverride>, valueColumns: ValueColumns,
 /**
  * Sorted by address.
  */

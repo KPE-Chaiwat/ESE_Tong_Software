@@ -4,19 +4,19 @@ import type { LogicalRect } from "./LogicalRect";
 /**
  * One monitor (`app_list_monitors`). Geometry in logical px of that monitor.
  */
-export type MonitorInfo = { 
+export type MonitorInfo = {
 /**
  * Stable id for `ArrangeTarget.monitorId` while the app runs (the OS monitor name).
  */
-id: string, 
+id: string,
 /**
  * "Display 1", "Display 2", ... (the primary monitor is Display 1).
  */
-label: string, 
+label: string,
 /**
  * OS monitor name, stored in `WindowPlacement.monitor`.
  */
-name: string, primary: boolean, 
+name: string, primary: boolean,
 /**
  * Work area (taskbar excluded) in logical px.
  */

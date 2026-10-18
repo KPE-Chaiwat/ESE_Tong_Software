@@ -6,23 +6,23 @@ import type { WorkspaceItem } from "./WorkspaceItem";
  * The W1 workspace layout as stored in Rust (`mm_set_workspace_layout`, snapshot field
  * `workspaceLayout`). Layout values never mark the profile modified.
  */
-export type WorkspaceLayout = { 
+export type WorkspaceLayout = {
 /**
  * Sub-window rectangles by poll. Polls without a rectangle are absent.
  */
-items: Array<WorkspaceItem>, 
+items: Array<WorkspaceItem>,
 /**
  * Order of the minimized bar.
  */
-minimizedOrder: Array<PollId>, tileMode: boolean, 
+minimizedOrder: Array<PollId>, tileMode: boolean,
 /**
  * Owned by `mm_set_compact_mode`: ignored in `mm_set_workspace_layout`, filled in output.
  */
-compact: boolean, 
+compact: boolean,
 /**
  * 220-400.
  */
-sidebarWidth: number, sidebarCollapsed: boolean, trafficExpanded: boolean, 
+sidebarWidth: number, sidebarCollapsed: boolean, trafficExpanded: boolean,
 /**
  * px; null = the 35% default.
  */

@@ -9,6 +9,8 @@ import { draftHasEdits, draftTexts, type PollDraftField } from "../../store/poll
 import { wholeNumber } from "../../validation/schemas";
 import { describedBy, Field } from "../form/field";
 import { usePoll, usePollUi, usePollViewRuntime } from "./context";
+import { InterpretationSection } from "./InterpretationSection";
+import { RuleSection } from "./RuleSection";
 import { SETUP_CONTENT_ANCHOR } from "./setup-focus";
 
 interface PollSetupProps {
@@ -160,7 +162,9 @@ export function PollSetup({ scaleSection, focusName }: PollSetupProps) {
           </div>
         </form>
       </section>
+      <InterpretationSection />
       {scaleSection}
+      <RuleSection />
     </div>
   );
 }

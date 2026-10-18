@@ -131,6 +131,11 @@ export function createNativePollRuntime(
     ...(options.clipboard ? { clipboard: options.clipboard } : {}),
     ...(options.createScaled ? { createScaled: options.createScaled } : {}),
     lockModal: () => layout.getState().lockModal(),
+    canPrepareBulk: () =>
+      !layout.getState().modalOpen &&
+      !host.getState().pending[pollId] &&
+      host.getState().closing === null &&
+      host.getState().deleting === null,
     warn,
     hostActions: {
       dock: (origin) => void actions.dock(origin),

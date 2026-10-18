@@ -5,7 +5,7 @@ import type { WorkspaceRect } from "./WorkspaceRect";
 /**
  * Payload of `RevealPoll`: mount (if needed), place, activate and focus that sub-window.
  */
-export type RevealPoll = { pollId: PollId, 
+export type RevealPoll = { pollId: PollId,
 /**
  * The rectangle to use (list drag or dock with a rectangle), else null.
  */

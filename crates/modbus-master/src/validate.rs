@@ -22,13 +22,13 @@ pub const SCAN_RATE_MS_RANGE: (u32, u32) = (20, 60_000);
 #[error("{message}")]
 pub struct ValidationError {
     /// Name of the offending field (camelCase, as in the DTO).
-    pub field: &'static str,
+    pub field: String,
     pub message: String,
 }
 
 fn invalid(field: &'static str, message: impl Into<String>) -> ValidationError {
     ValidationError {
-        field,
+        field: field.into(),
         message: message.into(),
     }
 }
@@ -393,6 +393,19 @@ pub fn validate_handoff(handoff: Option<&str>) -> Result<(), ValidationError> {
     Ok(())
 }
 
+/// Checks the complete prospective rule list.
+/// # Errors
+/// The nested editor field of the first invalid rule.
+pub fn validate_color_rules(
+    rules: &[shared_types::ValueColorRule],
+    format: shared_types::ValueFormat,
+) -> Result<(), ValidationError> {
+    shared_types::check_color_rules(rules, format).map_err(|e| ValidationError {
+        field: e.field,
+        message: e.message,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +632,7 @@ mod tests {
             z: 1,
             state: SubWindowState::Normal,
             restore: None,
+            grid: None,
         };
         assert!(validate_workspace_rect(&ws(-100.0), "items").is_ok());
         assert_eq!(

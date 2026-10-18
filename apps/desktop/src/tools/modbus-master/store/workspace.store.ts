@@ -10,7 +10,12 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { toIpcError } from "@/shared/ipc/errors";
 import type { ModbusMasterIpc } from "@/shared/ipc/modbus-master";
-import type { PollId, PollSummary, WorkspaceLayout } from "@/shared/ipc/modbus-master.types";
+import type {
+  GridRect,
+  PollId,
+  PollSummary,
+  WorkspaceLayout,
+} from "@/shared/ipc/modbus-master.types";
 import { clampRect, type Rect, rectsEqual, type Size } from "@/shared/lib/layout-math";
 import type { ToastStoreApi } from "@/shared/lib/toast.store";
 import {
@@ -92,6 +97,10 @@ export interface WorkspaceActions {
   requestFocus(id: PollId): void;
   /** Commits a rectangle after a drag or a key. A maximized window becomes normal. Does not report. */
   setRect(id: PollId, rect: Rect): void;
+  /** Saves exact GridStack cells and a pixel fallback after a completed layout change. */
+  setGridRect(id: PollId, grid: GridRect, rect: Rect): void;
+  setGridRects(entries: readonly { id: PollId; grid: GridRect; rect: Rect }[]): void;
+  resetGrid(): void;
   swap(a: PollId, b: PollId): void;
   minimize(id: PollId): void;
   maximize(id: PollId): void;
@@ -309,7 +318,7 @@ export function createWorkspaceStore(deps: WorkspaceStoreDeps): WorkspaceStoreAp
         set({
           items,
           minimizedOrder,
-          tileMode: layout.tileMode,
+          tileMode: false,
           sidebar: {
             width: clampSidebarWidth(layout.sidebarWidth),
             collapsed: layout.sidebarCollapsed,
@@ -429,8 +438,58 @@ export function createWorkspaceStore(deps: WorkspaceStoreDeps): WorkspaceStoreAp
         const placed = sizeKnown(s.size) ? clampRect(rect, s.size) : rect;
         if (item.state === "normal" && rectsEqual(item.rect, placed)) return;
         commit({
-          items: { ...s.items, [id]: { ...item, rect: placed, state: "normal", restore: null } },
+          items: {
+            ...s.items,
+            [id]: { ...item, rect: placed, grid: null, state: "normal", restore: null },
+          },
         });
+      },
+
+      setGridRect(id, grid, rect) {
+        const s = get();
+        const item = s.items[id];
+        if (!item) return;
+        if (JSON.stringify(item.grid) === JSON.stringify(grid) && rectsEqual(item.rect, rect))
+          return;
+        set({
+          items: { ...s.items, [id]: { ...item, grid, rect, state: "normal", restore: null } },
+        });
+        void flush();
+      },
+
+      setGridRects(entries) {
+        const s = get();
+        let next = s.items;
+        for (const { id, grid, rect } of entries) {
+          const item = next[id];
+          if (!item) continue;
+          if (JSON.stringify(item.grid) === JSON.stringify(grid) && rectsEqual(item.rect, rect))
+            continue;
+          if (next === s.items) next = { ...s.items };
+          next[id] = { ...item, grid, rect, state: "normal", restore: null };
+        }
+        if (next !== s.items) {
+          set({ items: next });
+          void flush();
+        }
+      },
+
+      resetGrid() {
+        const s = get();
+        const ids = deps.getListOrder().filter((id) => s.items[id]?.state !== "minimized");
+        const next = { ...s.items };
+        ids.forEach((id, index) => {
+          const item = next[id];
+          if (!item) return;
+          next[id] = {
+            ...item,
+            grid: { x: (index % 2) * 6, y: Math.floor(index / 2) * 6, w: 6, h: 6, columns: 12 },
+            state: "normal",
+            restore: null,
+          };
+        });
+        set({ items: next, tileMode: false });
+        void flush();
       },
 
       swap(a, b) {

@@ -1,4 +1,4 @@
-import { pollConfigInput } from "@/shared/ipc/modbus-master.fake";
+﻿import { pollConfigInput } from "@/shared/ipc/modbus-master.fake";
 import type { PollConfig } from "@/shared/ipc/modbus-master.types";
 import {
   type DraftContext,
@@ -35,7 +35,14 @@ describe("draftTexts and draftFromConfig", () => {
       scanRateMs: "1000",
     });
     const oneBased = config({
-      display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+      display: {
+        format: "unsigned",
+        addressBase: 1,
+        showAlias: true,
+        copyAlias: false,
+        swapBytes: false,
+        reverseWords: false,
+      },
     });
     expect(draftTexts(oneBased).startAddress).toBe("1");
   });

@@ -29,8 +29,8 @@ pub use connector::{Connector, SystemConnector};
 pub use emitter::{EventSink, SessionSink, ViewSink};
 pub use poll::HANDOFF_MAX_AGE;
 pub use session::{
-    NativeOpenUndo, PollHostInfo, Session, SessionDeps, SessionError, SessionStats, ShowOutcome,
-    HANDOFF_REQUEST_TIMEOUT, LINK_LOAD_WINDOW, RTU_BROADCAST_TURNAROUND, RTU_MIN_GAP,
+    BulkLease, NativeOpenUndo, PollHostInfo, Session, SessionDeps, SessionError, SessionStats,
+    ShowOutcome, HANDOFF_REQUEST_TIMEOUT, LINK_LOAD_WINDOW, RTU_BROADCAST_TURNAROUND, RTU_MIN_GAP,
 };
 pub use timer::{NoTimerResolution, TimerResolution};
 pub use traffic::TRAFFIC_LOG_CAPACITY;

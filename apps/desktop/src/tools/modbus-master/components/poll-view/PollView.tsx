@@ -86,6 +86,7 @@ function Body({
   className,
 }: Omit<PollViewProps, "runtime">) {
   const runtime = usePollViewRuntime();
+  const bulkLocked = usePollUi((s) => s.bulkOperationToken !== null);
   // The exact width, reduced to the breakpoints (the status line steps, the wide header, the
   // presentation fallback): every one of them compares the fractional width, and the view renders
   // only when one is crossed, not on every sub-pixel of a resize.
@@ -224,6 +225,8 @@ function Body({
       role="group"
       aria-label="Poll view"
       data-slot="poll-view"
+      inert={bulkLocked}
+      aria-busy={bulkLocked}
       data-host={host}
       data-poll-id={runtime.pollId}
       data-attach={attach}

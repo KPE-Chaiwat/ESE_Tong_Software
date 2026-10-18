@@ -4,11 +4,11 @@ import type { AppErrorCode } from "./AppErrorCode";
 /**
  * Error returned by every command: `invoke` rejects with this object.
  */
-export type AppError = { code: AppErrorCode, 
+export type AppError = { code: AppErrorCode,
 /**
  * Human readable English message.
  */
-message: string, 
+message: string,
 /**
  * For `validation`: the offending input field as named in the DTO (for example
  * `timeoutMs`, `slaveId`, `values`, `name`), so the UI can focus it. Otherwise null.

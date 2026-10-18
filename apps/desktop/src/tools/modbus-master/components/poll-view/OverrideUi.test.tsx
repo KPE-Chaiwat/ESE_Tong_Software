@@ -1,4 +1,4 @@
-// The overrides: the S8 dialog, the list in the setup and the removal (DES-003 3.2, FE-003 task 06).
+﻿// The overrides: the S8 dialog, the list in the setup and the removal (DES-003 3.2, FE-003 task 06).
 import { act, screen, waitFor, within } from "@testing-library/react";
 import type {
   PollConfigInput,
@@ -255,7 +255,16 @@ describe("from the selected rows", () => {
 describe("from the list: Add override", () => {
   it("opens with Start and End in the display base and the protocol helper", async () => {
     const h = await live(
-      { display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false } },
+      {
+        display: {
+          format: "unsigned",
+          addressBase: 1,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
+      },
       undefined,
       { setupOpen: true },
     );
@@ -310,7 +319,16 @@ describe("from the list: Add override", () => {
 
   it("D4: in 1-based mode a start of 0 is refused", async () => {
     const h = await live(
-      { display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false } },
+      {
+        display: {
+          format: "unsigned",
+          addressBase: 1,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
+      },
       undefined,
       { setupOpen: true },
     );
@@ -484,7 +502,14 @@ describe("the override list", () => {
     await live(
       {
         scaleOverrides: two,
-        display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+        display: {
+          format: "unsigned",
+          addressBase: 1,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       },
       undefined,
       { setupOpen: true },

@@ -29,6 +29,8 @@ import {
   Minus,
   OctagonX,
   PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pause,
   Pencil,
   Play,
@@ -50,6 +52,8 @@ import { useReducedMotion } from "@/shared/lib/use-reduced-motion";
 import { cn } from "@/shared/lib/utils";
 
 const ICONS = {
+  "panel-left-close": PanelLeftClose,
+  "panel-left-open": PanelLeftOpen,
   plug: Plug,
   loader: Loader,
   link: Link,

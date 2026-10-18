@@ -25,7 +25,7 @@ describe("pop out controls of a sub-window (DES-002 2.5.2)", () => {
     await waitFor(() => expect(h.ipc.callsOf("popOutPoll")).toHaveLength(1));
     await waitFor(() => expect(frame(a)).toBeNull());
     expect(h.ipc.pollSummary(a).host).toBe("native");
-    expect(screen.getByRole("option", { name: /^Pump 2,/ })).toHaveTextContent("own window");
+    expect(screen.getByRole("listitem", { name: /^Pump 2,/ })).toHaveTextContent("own window");
     expect(screen.getByTestId("status-text")).toHaveTextContent("1 in its own window");
   });
 
@@ -64,21 +64,14 @@ describe("pop out controls of a sub-window (DES-002 2.5.2)", () => {
     await waitFor(() => expect(h.rt.views.get(a).stores.poll.getState().attach).toBe("attached"));
   });
 
-  it("the title bar menu has 'Pop out to own window' and, in Move to, 'Own window (pop out)'", async () => {
+  it("the title bar menu has Pop out to own window", async () => {
     h = await renderWindow();
     const a = await h.addPoll("Pump 2");
     fireEvent.contextMenu(within(frame(a) as HTMLElement).getByRole("toolbar"), {
       clientX: 20,
       clientY: 20,
     });
-    await h.user.click(await screen.findByRole("menuitem", { name: /^Move to/ }));
-    expect(await screen.findByRole("menuitem", { name: /^Own window/ })).toBeVisible();
-    await h.user.keyboard("{Escape}");
-    await h.user.keyboard("{Escape}");
-    fireEvent.contextMenu(within(frame(a) as HTMLElement).getByRole("toolbar"), {
-      clientX: 20,
-      clientY: 20,
-    });
+    expect(screen.queryByRole("menuitem", { name: /^Move to/ })).toBeNull();
     await h.user.click(await screen.findByRole("menuitem", { name: /^Pop out to own window/ }));
     await waitFor(() => expect(h.ipc.callsOf("popOutPoll")).toHaveLength(1));
   });
@@ -139,7 +132,7 @@ describe("pop out controls of a sub-window (DES-002 2.5.2)", () => {
     expect(frame(b)).not.toBeNull();
   });
 
-  it("in tile mode the remaining windows are tiled again", async () => {
+  it("removing a widget leaves the other widgets in the grid", async () => {
     h = await renderWindow();
     const a = await h.addPoll("A");
     const b = await h.addPoll("B");
@@ -147,12 +140,7 @@ describe("pop out controls of a sub-window (DES-002 2.5.2)", () => {
     await h.act(() => h.rt.stores.workspace.getState().tile());
     await h.user.click(popOutButton(a));
     await waitFor(() => expect(frame(a)).toBeNull());
-    // Two are left: side by side, 654 wide each... the 2 x 1 grid of the tile area.
-    expect(h.rt.stores.workspace.getState().items[b]?.rect).toMatchObject({
-      x: 8,
-      y: 8,
-      width: 654,
-    });
+    expect(frame(b)?.closest(".grid-stack-item")).toHaveAttribute("gs-id", String(b));
   });
 });
 

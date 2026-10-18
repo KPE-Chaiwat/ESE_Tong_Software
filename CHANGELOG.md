@@ -11,7 +11,21 @@ entries move into a new version section (see "Versioning and changelog" in `docs
 
 ## [Unreleased]
 
+### Changed
+- `Value color rules…` from a register row now scopes the conditional rule to that register, including when narrowing a previously whole-poll rule; read-only value cells no longer show native text-selection highlights that obscure rule colors.
+- A register row can now open its own static color rule, with separate background and text colors and no numeric threshold; other register rows are unaffected. Polls support up to 256 rules so every register in a 125-register poll can have its own color.
+- Custom value rule colors now warn about low text contrast without blocking Apply or profile load.
+
 ### Added
+- Value color rules now let each rule choose its own background and text colors with a live preview and color syntax validation (REQ-005).
+- Modbus Master Polls now use a non-overlapping GridStack workspace with title-bar drag, corner resize, vertical scrolling, grid layout persistence and migration of older profile layouts (REQ-008).
+- Per-poll value color rules with ordered comparisons, exact 64-bit thresholds, accessible markers and a draft editor (REQ-005).
+- Value color rules can be opened from the row context menu in normal and combined register tables.
+- Comparison choices show their operator symbols, and the value-row menu can open the Format / endian controls in Poll setup.
+- Combined 32/64-bit byte order now has explicit Big-endian, Little-endian, and byte-swap choices with the exact byte sequence shown beside each option.
+- Modbus Master adds combined 32/64-bit integer and IEEE floating-point interpretations, independent byte/word ordering, exact integer copy and raw-register inspection (REQ-006).
+- Modbus Master sidebar adds independent poll selection with checkboxes, additive Shift ranges, Select all and Clear selection controls, scoped keyboard shortcuts, and bulk duplicate/delete with confirmation and recovery for native windows (REQ-004).
+- Modbus Master toolbar provides a visible Hide sidebar / Show sidebar control, including compact mode, while preserving sidebar width and drafts (REQ-007).
 - The app version is shown as "ESEfact v{version}" in the launcher footer and at the right end of
   the Modbus Master status bar. The version comes from a single source (the workspace
   `Cargo.toml`); `pnpm version:set <x.y.z>` updates every file and `pnpm version:check` (part of
@@ -50,16 +64,21 @@ entries move into a new version section (see "Versioning and changelog" in `docs
   640 px; no page scrollbar at any width; the connection window now fits the screen's work area.
 
 ### Changed
+- Modbus Master profiles now save as schema 5 for custom rule colors; schemas 1–4 remain readable and migrate on save.
 - Modbus Master native window minimum size is 480 x 320 including the title bar and borders, so
   nine popped-out windows tile on a 1080p screen.
-- Profile format is now schema 2 (layout, aliases, scale settings). Earlier builds cannot open a
-  profile that was saved in the new format.
+- Profiles preserve value color rules and combined-register interpretation alongside layout,
+  aliases and scales; earlier builds cannot open a profile saved in schema 5.
+
+### Fixed
+- Opening Format / endian and applying a combined value format keeps the Poll title and data visible; setup and row navigation scroll only their own panels.
+- Bulk-action recovery replies cannot overwrite a newly loaded profile's state, and poll selection
+  checkboxes remain reachable with Tab while a bulk action is busy.
 
 ### Known limitations (unreleased work)
-- The multi-poll, workspace, drag and scaling features are covered by unit, component and
-  simulated-IPC tests but have not been run in a real window yet: pop out, dock, Arrange, DPI and
-  multi-monitor behavior, the real close behavior and migration of real 0.1.0 profiles are
-  unverified until the integration run.
+- Mixed-DPI dual-monitor layout, physical RTU devices and some non-installed keyboard layouts
+  still need owner-run checks; the available simulator and single-monitor real-window cases have
+  been verified.
 - Pop out by dragging a sub-window out of the workspace and dock by dragging a native window back
   are not implemented (planned for a later phase; buttons and shortcuts work).
 

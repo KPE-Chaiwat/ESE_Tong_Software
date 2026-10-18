@@ -4,23 +4,23 @@ import type { Parity } from "./Parity";
 /**
  * Connection settings. `mode` is the discriminant.
  */
-export type ConnectionConfig = { "mode": "tcp", host: string, 
+export type ConnectionConfig = { "mode": "tcp", host: string,
 /**
  * 1-65535.
  */
-port: number, 
+port: number,
 /**
  * Connect and response timeout, 50-10000 ms (BE-001 Q-03, Q-05).
  */
-timeoutMs: number, } | { "mode": "rtu", 
+timeoutMs: number, } | { "mode": "rtu",
 /**
  * Port name from `mm_list_serial_ports`, for example `COM3`.
  */
-port: string, 
+port: string,
 /**
  * One of 1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200.
  */
-baud: number, dataBits: 7 | 8, parity: Parity, stopBits: 1 | 2, 
+baud: number, dataBits: 7 | 8, parity: Parity, stopBits: 1 | 2,
 /**
  * Response timeout, 50-10000 ms.
  */

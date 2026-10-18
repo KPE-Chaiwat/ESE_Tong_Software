@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import type { PollConfig, ScaleOverride, ScaleSettings } from "@/shared/ipc/modbus-master.types";
 import { presetDefaults } from "./scale-presets";
 import {
@@ -18,7 +18,14 @@ function config(patch: Partial<Config> = {}): Config {
     scale: null,
     scaleOverrides: [],
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
-    display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+    display: {
+      format: "unsigned",
+      addressBase: 0,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
     ...patch,
   };
 }
@@ -61,6 +68,7 @@ describe("createScaled", () => {
     const cell = createScaled(config({ scale: mA }))(0, 0);
     expect(cell).toEqual({
       text: "4.00",
+      numeric: 4,
       unit: "mA",
       marker: "none",
       tooltip: null,
@@ -138,7 +146,14 @@ describe("createScaled", () => {
       const based = createScaled(
         config({
           scaleOverrides: [o1],
-          display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+          display: {
+            format: "unsigned",
+            addressBase: 1,
+            showAlias: true,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
         }),
       )(1, 2);
       expect(based?.override?.tooltip).toBe("Scale override 1-4: Divide by 10, 1 dp, °C");
@@ -194,7 +209,14 @@ describe("createScaledFactory", () => {
       factory(
         config({
           scale: mA,
-          display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+          display: {
+            format: "unsigned",
+            addressBase: 1,
+            showAlias: true,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
         }) as PollConfig,
       ),
     ).not.toBe(p2);

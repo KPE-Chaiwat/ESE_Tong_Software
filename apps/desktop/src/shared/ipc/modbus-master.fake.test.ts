@@ -1545,7 +1545,7 @@ describe("profiles", () => {
     await fake.reorderPolls([b, a]);
     const exported = await fake.exportProfile(undefined, tcp);
     expect(exported).toMatchObject({
-      schemaVersion: 2,
+      schemaVersion: 5,
       name: "Boiler",
       workspace: {
         tileMode: true,

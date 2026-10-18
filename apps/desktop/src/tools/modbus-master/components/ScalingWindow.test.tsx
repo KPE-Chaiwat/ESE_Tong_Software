@@ -1,4 +1,4 @@
-// Value scaling in the connection window (FE-003 tasks 06, 08 and 09): shortcuts, the S8 dialog as a
+﻿// Value scaling in the connection window (FE-003 tasks 06, 08 and 09): shortcuts, the S8 dialog as a
 // modal of W1, the scaled preview of the Write dialog, and "Modified".
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import type {
@@ -264,7 +264,14 @@ describe("the scaled preview of the Write dialog (DES-003 3.5)", () => {
     const id = await connected({
       ...POLL,
       scale: mA(),
-      display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+      display: {
+        format: "unsigned",
+        addressBase: 1,
+        showAlias: true,
+        copyAlias: false,
+        swapBytes: false,
+        reverseWords: false,
+      },
     });
     const d = await openWrite(id, 3);
     expect(within(d).getByTestId("write-preview-note")).toHaveTextContent("for address 4.");

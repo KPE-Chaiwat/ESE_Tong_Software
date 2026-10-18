@@ -3,15 +3,15 @@
 /**
  * A write. `values` holds one entry for FC05/06; coils are 0 or 1.
  */
-export type WriteRequest = { 
+export type WriteRequest = {
 /**
  * 0-247; 0 is broadcast (no reply, result `broadcastSent`).
  */
-slaveId: number, function: 5 | 6 | 15 | 16, 
+slaveId: number, function: 5 | 6 | 15 | 16,
 /**
  * Protocol address 0-65535.
  */
-address: number, 
+address: number,
 /**
  * FC05: [0|1]. FC06: [0-65535]. FC15: 1-1968 values of 0/1. FC16: 1-123 values.
  */

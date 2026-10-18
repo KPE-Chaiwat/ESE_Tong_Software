@@ -7,12 +7,16 @@
 //! Names follow the BE-001 and BE-002 contracts. Every field is camelCase on the wire.
 //! Timestamps (`at`, `modifiedAt`, `lastOkAt`) are milliseconds since the Unix epoch.
 
+mod bulk;
+mod color_rules;
 mod layout;
 mod modbus;
 mod profile;
 mod session;
 mod view;
 
+pub use bulk::*;
+pub use color_rules::*;
 pub use layout::*;
 pub use modbus::*;
 pub use profile::*;

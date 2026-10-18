@@ -5,19 +5,19 @@ import type { PollCounters } from "./PollCounters";
 /**
  * Connection-wide counters. Payload of `Counters` on the session channel.
  */
-export type ConnectionCounters = { 
+export type ConnectionCounters = {
 /**
  * Everything on the link: polls (including deleted polls) and writes.
  */
-total: Counters, 
+total: Counters,
 /**
  * Writes only.
  */
-writes: Counters, 
+writes: Counters,
 /**
  * One entry per poll, in list order.
  */
-polls: Array<PollCounters>, 
+polls: Array<PollCounters>,
 /**
  * Share of the last 2 s the link was busy with a request, 0-100.
  */

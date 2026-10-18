@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
+﻿import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import type { PollHostKind, ScaleSettings } from "@/shared/ipc/modbus-master.types";
 import { clickWithLayoutShift } from "@/shared/lib/press-test-utils";
 import { createPollViewRuntime } from "../../runtime/poll-view-runtime";
@@ -302,7 +302,14 @@ describe.each(["workspace", "native"] as const)("the scale section in the %s hos
     const h = await open(host);
     await act(async () => {
       await h.ipc.setPollView(h.pollId, {
-        display: { format: "signed", addressBase: 0, showAlias: true, copyAlias: false },
+        display: {
+          format: "signed",
+          addressBase: 0,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       });
     });
     expect(within(section()).queryByLabelText("Raw is signed")).not.toBeInTheDocument();
@@ -321,7 +328,14 @@ describe.each(["workspace", "native"] as const)(
         width: 900,
         poll: {
           definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 4, scanRateMs: 100 },
-          display: { format: "signed", addressBase: 0, showAlias: true, copyAlias: false },
+          display: {
+            format: "signed",
+            addressBase: 0,
+            showAlias: true,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
         },
       });
       act(() => {

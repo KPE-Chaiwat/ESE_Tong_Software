@@ -11,11 +11,11 @@ afterEach(() => {
   h?.rt.dispose();
 });
 
-const list = () => screen.getByRole("listbox", { name: "Polls" });
-const row = (name: RegExp | string) => within(list()).getByRole("option", { name });
+const list = () => screen.getByRole("list", { name: "Polls" });
+const row = (name: RegExp | string) => within(list()).getByRole("listitem", { name });
 const rowNames = () =>
   within(list())
-    .getAllByRole("option")
+    .getAllByRole("listitem")
     .map((r) => r.getAttribute("aria-label")?.split(",")[0]);
 const frame = (id: PollId) =>
   document.querySelector(`[data-subwindow="${id}"]`) as HTMLElement | null;
@@ -43,7 +43,7 @@ function layoutRects() {
     }) as DOMRect;
   list().getBoundingClientRect = rect(0, 100, 260, 400);
   within(list())
-    .getAllByRole("option")
+    .getAllByRole("listitem")
     .forEach((r, i) => {
       r.getBoundingClientRect = rect(0, 100 + i * 50, 260, 48);
     });
@@ -342,7 +342,7 @@ describe("drag a row into the workspace (DES-002 2.10.7)", () => {
     expect(box(preview)).toEqual({ left: 670, top: 8, width: 654, height: 700 });
     release(el, cx, cy);
     await waitFor(() => expect(frame(c)).not.toBeNull());
-    expect(box(frame(c) as HTMLElement)).toEqual({ left: 670, top: 8, width: 654, height: 700 });
+    expect(frame(c)?.closest(".grid-stack-item")).toHaveAttribute("gs-id", String(c));
     expect(frame(c)).toHaveAttribute("aria-current", "true");
     expect(live()).toHaveTextContent("C moved to the right half.");
     const call = h.ipc.callsOf("showPoll").at(-1) as [PollId, { workspaceRect: { x: number } }];
@@ -358,7 +358,7 @@ describe("drag a row into the workspace (DES-002 2.10.7)", () => {
     expect(screen.getByTestId("list-preview")).toHaveAttribute("data-place", "rect");
     release(el, cx, cy);
     await waitFor(() => expect(frame(c)).not.toBeNull());
-    expect(box(frame(c) as HTMLElement)).toEqual({ left: 280, top: 285, width: 640, height: 368 });
+    expect(frame(c)?.closest(".grid-stack-item")).toHaveAttribute("gs-id", String(c));
     expect(live()).toHaveTextContent("C shown in the workspace.");
   });
 
@@ -381,7 +381,7 @@ describe("drag a row into the workspace (DES-002 2.10.7)", () => {
     const { el, cx, cy } = await dragTo(/^A,/, 600, 300);
     release(el, cx, cy);
     await waitFor(() => expect(frame(a)).not.toBeNull());
-    expect(box(frame(a) as HTMLElement)).toMatchObject({ left: 280, top: 285 });
+    expect(frame(a)?.closest(".grid-stack-item")).toHaveAttribute("gs-id", String(a));
     expect(frame(a)).toHaveAttribute("aria-current", "true");
     expect(frame(b)).not.toHaveAttribute("aria-current", "true");
     // Nothing goes to Rust but the layout: the sub-window was there.
@@ -410,7 +410,7 @@ describe("drag a row into the workspace (DES-002 2.10.7)", () => {
     const call = h.ipc.callsOf("dockPoll")[0] as [PollId, null, boolean, { x: number; y: number }];
     expect(call.slice(0, 3)).toEqual([n, null, true]);
     expect(call[3]).toMatchObject({ x: 280, y: 285 });
-    expect(box(frame(n) as HTMLElement)).toMatchObject({ left: 280, top: 285 });
+    expect(frame(n)?.closest(".grid-stack-item")).toHaveAttribute("gs-id", String(n));
   });
 
   it("a refused list drag of a native poll says to close the dialog in its window first", async () => {

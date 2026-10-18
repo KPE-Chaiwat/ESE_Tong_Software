@@ -2,6 +2,7 @@ import { useId, useRef } from "react";
 import { KEEP_FOCUS_ON_PRESS } from "@/shared/lib/keep-focus";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
+import { isCombinedFormat } from "../../lib/combined";
 import {
   OVERRIDE_OUTSIDE_POLL,
   rangeLabel,
@@ -172,7 +173,11 @@ export function ScaleSection() {
         </div>
         {active ? null : (
           <div className="flex flex-col gap-1 text-xs text-text-muted" data-testid="scale-inactive">
-            <p>{SCALE_REGISTERS_ONLY}</p>
+            <p>
+              {isCombinedFormat(config.display.format)
+                ? "Scaling is unavailable for combined values. Saved scales apply again in 16-bit mode."
+                : SCALE_REGISTERS_ONLY}
+            </p>
             {hasScale || overrideCount > 0 ? <p>{SCALE_KEPT_NOTE}</p> : null}
           </div>
         )}

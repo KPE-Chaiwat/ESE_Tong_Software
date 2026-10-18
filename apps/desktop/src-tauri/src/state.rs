@@ -54,13 +54,22 @@ impl AppState {
 
     /// The session of a connection window or of one of its poll windows, or `noSession`.
     pub fn session(&self, label: &str) -> AppResult<Arc<Session>> {
-        let label = crate::windows::connection_label(label);
-        self.lock().get(label).cloned().ok_or_else(|| {
+        let connection = crate::windows::connection_label(label);
+        let session = self.lock().get(connection).cloned().ok_or_else(|| {
             AppError::new(
                 AppErrorCode::NoSession,
                 "No session for this window. Call mm_open_session first.",
             )
-        })
+        })?;
+        if let Some((_, id)) = crate::windows::parse_poll_window_label(label) {
+            if !session.contains_poll(id) {
+                return Err(AppError::new(
+                    AppErrorCode::PollNotFound,
+                    "This poll no longer exists.",
+                ));
+            }
+        }
+        Ok(session)
     }
 
     /// Returns the existing session of `label` (`false`) or creates one (`true`).

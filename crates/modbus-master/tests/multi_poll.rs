@@ -16,7 +16,7 @@ use shared_types::{
 };
 use transport::fake::Behavior;
 
-fn field(err: SessionError) -> &'static str {
+fn field(err: SessionError) -> String {
     match err {
         SessionError::Validation(v) => v.field,
         other => panic!("expected a validation error, got {other:?}"),
@@ -743,6 +743,7 @@ async fn show_close_and_native_window_destroyed() {
         z: 3,
         state: SubWindowState::Minimized,
         restore: None,
+        grid: None,
     };
     f.session
         .set_workspace_layout(WorkspaceLayout {
@@ -934,6 +935,7 @@ async fn export_then_apply_round_trips() {
         z: 2,
         state: SubWindowState::Minimized,
         restore: None,
+        grid: None,
     };
     f.session
         .set_workspace_layout(WorkspaceLayout {
@@ -965,7 +967,7 @@ async fn export_then_apply_round_trips() {
         .export_profile(Some("Boiler".into()), Some(tcp_config(502, 1000)), None)
         .await
         .unwrap();
-    assert_eq!(exported.schema_version, 2);
+    assert_eq!(exported.schema_version, 5);
     let names: Vec<&str> = exported.polls.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["C", "A", "B"]);
     assert_eq!(exported.workspace.minimized_order, [1]);
@@ -1278,6 +1280,7 @@ async fn native_open_before_the_window_and_undo_on_failure() {
         z: 1,
         state: SubWindowState::Minimized,
         restore: None,
+        grid: None,
     };
     f.session
         .set_workspace_layout(WorkspaceLayout {
@@ -1359,4 +1362,110 @@ async fn keep_drops_a_stored_handoff() {
         .await
         .unwrap();
     assert_eq!(snap.handoff, None);
+}
+
+#[tokio::test(start_paused = true)]
+async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly() {
+    use shared_types::{
+        DisplaySettings, ValueColorComparison, ValueColorHighlight, ValueColorRule,
+        ValueColorSource, ValueFormat,
+    };
+    let f = fixture();
+    let id = f
+        .session
+        .add_poll(input("A", poll03(4, 100)), H::Workspace)
+        .await
+        .unwrap();
+    let view = f.view(id).await;
+    let rule = ValueColorRule {
+        name: " Fraction ".into(),
+        enabled: false,
+        range: None,
+        source: ValueColorSource::Raw,
+        comparison: ValueColorComparison::GreaterThan,
+        threshold: " 1.5 ".into(),
+        upper_threshold: None,
+        highlight: ValueColorHighlight::Warning,
+        colors: None,
+    };
+    f.session
+        .set_poll_view(
+            id,
+            PollViewSettings {
+                color_rules: Some(vec![rule]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let before = f.session.snapshot().await.unwrap().polls[0].config.clone();
+    assert_eq!(before.color_rules[0].name, "Fraction");
+    assert_eq!(before.color_rules[0].threshold, "1.5");
+    let display = DisplaySettings {
+        format: ValueFormat::Unsigned64,
+        swap_bytes: true,
+        reverse_words: true,
+        ..Default::default()
+    };
+    let count = view.events().len();
+    let error = f
+        .session
+        .set_poll_view(
+            id,
+            PollViewSettings {
+                display: Some(display.clone()),
+                has_unapplied_edits: Some(true),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Rule \"Fraction\""));
+    assert_eq!(f.session.snapshot().await.unwrap().polls[0].config, before);
+    assert_eq!(view.events().len(), count);
+    assert!(!f.session.snapshot().await.unwrap().polls[0].has_unapplied_edits);
+    let mut exact = before.color_rules.clone();
+    exact[0].threshold = "9007199254740993".into();
+    f.session
+        .set_poll_view(
+            id,
+            PollViewSettings {
+                display: Some(display.clone()),
+                color_rules: Some(exact.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let count = view.events().len();
+    f.session
+        .set_poll_view(
+            id,
+            PollViewSettings {
+                display: Some(display),
+                color_rules: Some(exact.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(view.events().len(), count, "identical patch emits nothing");
+    let copy = f.session.duplicate_poll(id).await.unwrap();
+    let snapshot = f.session.snapshot().await.unwrap();
+    let copied = &snapshot
+        .polls
+        .iter()
+        .find(|p| p.config.poll_id == copy)
+        .unwrap()
+        .config;
+    assert_eq!(copied.color_rules, exact);
+    assert!(copied.display.swap_bytes && copied.display.reverse_words);
+    let mut profile = f
+        .session
+        .export_profile(Some("Rules".into()), Some(tcp_config(502, 1000)), None)
+        .await
+        .unwrap();
+    profile.polls[1].color_rules[0].threshold = "1.5".into();
+    assert!(f.session.apply_profile(profile).await.is_err());
+    assert_eq!(f.session.snapshot().await.unwrap().polls, snapshot.polls);
 }

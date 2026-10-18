@@ -6,19 +6,19 @@ import type { WorkspaceRect } from "./WorkspaceRect";
 /**
  * Where a poll's view is and was (profile `PollProfile.view`, DES-002 6.1).
  */
-export type PollViewPlacement = { 
+export type PollViewPlacement = {
 /**
  * Last host kind (where Show reopens a closed poll).
  */
-host: PollHostKind, 
+host: PollHostKind,
 /**
  * False = closed (kept).
  */
-open: boolean, 
+open: boolean,
 /**
  * Last sub-window rectangle; null = next cascade slot.
  */
-workspace: WorkspaceRect | null, 
+workspace: WorkspaceRect | null,
 /**
  * Last native placement; null = anchor / cascade rule.
  */

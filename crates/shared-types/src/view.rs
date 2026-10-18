@@ -15,14 +15,22 @@ pub enum ValueFormat {
     Signed,
     Hex,
     Binary,
+    Signed32,
+    Unsigned32,
+    Float32,
+    Signed64,
+    Unsigned64,
+    Float64,
 }
 
 /// Display options of one poll.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DisplaySettings {
     pub format: ValueFormat,
+    pub swap_bytes: bool,
+    pub reverse_words: bool,
     #[ts(type = "0 | 1")]
     pub address_base: u8,
     /// Alias column shown (default true).
@@ -35,6 +43,8 @@ impl Default for DisplaySettings {
     fn default() -> Self {
         Self {
             format: ValueFormat::Unsigned,
+            swap_bytes: false,
+            reverse_words: false,
             address_base: 0,
             show_alias: true,
             copy_alias: false,

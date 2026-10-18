@@ -6,6 +6,7 @@
 // Every function returns the items it was given when nothing changed, so an unchanged sub-window
 // keeps its object identity and its frame does not re-render.
 import type {
+  GridRect,
   PollId,
   PollSummary,
   SubWindowState,
@@ -46,6 +47,7 @@ export interface SubWindowItem {
   state: SubWindowState;
   /** The normal rectangle while maximized, else null. */
   restore: Rect | null;
+  grid?: GridRect | null;
 }
 
 export type SubWindowItems = Record<PollId, SubWindowItem>;
@@ -400,6 +402,7 @@ export function toWorkspaceRect(item: SubWindowItem): WorkspaceRect {
     z: item.z,
     state: item.state,
     restore: item.restore ? { ...item.restore } : null,
+    ...(item.grid ? { grid: item.grid } : {}),
   };
 }
 
@@ -407,9 +410,15 @@ export function toWorkspaceRect(item: SubWindowItem): WorkspaceRect {
 export function itemFromWorkspaceRect(r: WorkspaceRect, area: Rect, z: number): SubWindowItem {
   const rect: Rect = { x: r.x, y: r.y, width: r.width, height: r.height };
   if (r.state === "maximized") {
-    return { rect: { ...area }, z, state: "maximized", restore: r.restore ?? rect };
+    return {
+      rect: { ...area },
+      z,
+      state: "maximized",
+      restore: r.restore ?? rect,
+      grid: r.grid ?? null,
+    };
   }
-  return { rect, z, state: r.state, restore: null };
+  return { rect, z, state: r.state, restore: null, grid: r.grid ?? null };
 }
 
 /** Items from the layout Rust stores, for the polls that exist. z is kept (renumbered if duplicated). */

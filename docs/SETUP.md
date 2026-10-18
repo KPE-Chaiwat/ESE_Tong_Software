@@ -166,6 +166,10 @@ The Cargo feature `dev-hooks` of `esefact-desktop` (off by default, never enable
 pnpm --filter @esefact/desktop tauri build --debug --no-bundle --features dev-hooks
 ```
 
+The same command in a debug build accepts `kind: "bulkCreate" | "bulkPlace" | "bulkShow" | "bulkDestroy"` for CHK4-B6/C5. These faults apply only during postcommit bulk native-window reconciliation. Optional `skip` (default 0) skips that many matching native calls before failing once; unrelated calls do not consume it. For example, `{ kind: "bulkCreate", message: "QA second create failure", skip: 1 }` fails the second native copy after all definitions commit. Placement errors use the existing `create` issue stage. `bulkDestroy` leaves the deleted poll's orphan window for Retry window cleanup; Show/cleanup recovery does not replay definition mutation. Bulk injection is disabled in release builds even when the feature is explicitly enabled. Re-arming replaces any unused fault.
+
+Verify the hook and actor/window recovery tests with `cargo test --workspace --features dev-hooks bulk_` (never a per-package build/test).
+
 ## 5. Layout notes
 
 - Crates: `modbus-core` <- `transport` <- `modbus-master` <- `apps/desktop/src-tauri`; `platform` and `shared-types` are independent. See `CLAUDE.md`. `crates/dev-sim-slave` is a dev/test tool (section 4), not a product crate.

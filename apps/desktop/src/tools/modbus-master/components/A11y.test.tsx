@@ -70,7 +70,7 @@ describe("ARIA (DES-002 9)", () => {
       "Poll setup (Ctrl+\\)",
       "Open in its own window (Ctrl+Shift+O)",
       "Minimize",
-      "Maximize",
+      "Expand on grid",
       "Close (Ctrl+F4)",
     ]) {
       expect(within(bar(a)).getByRole("button", { name })).toBeVisible();
@@ -78,10 +78,8 @@ describe("ARIA (DES-002 9)", () => {
     bar(a).focus();
     fireEvent.keyDown(bar(a), { key: "F10", shiftKey: true });
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getAllByRole("menuitem").length).toBeGreaterThan(4);
-    expect(
-      within(menu).getByRole("menuitemcheckbox", { name: /^Snap while moving/ }),
-    ).toBeChecked();
+    expect(within(menu).getByRole("menuitem", { name: "Expand on grid" })).toBeVisible();
+    expect(within(menu).queryByRole("menuitemcheckbox", { name: /^Snap while moving/ })).toBeNull();
   });
 
   it("the grid has rowcount, rowindex, selected rows and an active descendant", async () => {
@@ -102,15 +100,15 @@ describe("ARIA (DES-002 9)", () => {
     expect(within(g).getAllByRole("columnheader").length).toBe(3);
   });
 
-  it("the poll list is a listbox of options with a full accessible name", async () => {
+  it("the poll list has separate Show targets, checkboxes and menu buttons", async () => {
     await two();
-    const list = screen.getByRole("listbox", { name: "Polls" });
-    const options = within(list).getAllByRole("option");
+    const list = screen.getByRole("list", { name: "Polls" });
+    const options = Array.from(list.querySelectorAll<HTMLElement>("[data-poll-show]"));
     expect(options).toHaveLength(2);
     expect(options[0]?.getAttribute("aria-label")).toMatch(/^A, Polling, in workspace$/);
-    expect(options.filter((o) => o.getAttribute("aria-selected") === "true")).toHaveLength(1);
-    // Exactly one option is a tab stop (roving tabindex).
-    expect(options.filter((o) => o.getAttribute("tabindex") === "0")).toHaveLength(1);
+    expect(options.filter((o) => o.getAttribute("aria-current") === "true")).toHaveLength(1);
+    // Each Show target has a tab stop, alongside its checkbox and actions.
+    expect(options.filter((o) => o.getAttribute("tabindex") === "0")).toHaveLength(2);
   });
 
   it("a menu has menu roles, and its button says it has a popup", async () => {
@@ -121,8 +119,8 @@ describe("ARIA (DES-002 9)", () => {
     await h.user.click(button);
     expect(button).toHaveAttribute("aria-expanded", "true");
     const menu = screen.getByRole("menu", { name: "Window" });
-    expect(within(menu).getAllByRole("menuitem").length).toBeGreaterThan(3);
-    expect(within(menu).getByRole("menuitemcheckbox", { name: /^Tile mode/ })).toBeVisible();
+    expect(within(menu).getByRole("menuitem", { name: /^Reset grid layout/ })).toBeVisible();
+    expect(within(menu).queryByRole("menuitemcheckbox", { name: /^Tile mode/ })).toBeNull();
   });
 
   it("the live regions are a polite status and an assertive alert", async () => {
@@ -236,11 +234,8 @@ describe("focus order (DES-002 9)", () => {
 });
 
 describe("every completed action is announced exactly once (DES-002 2.10.8)", () => {
-  it("move, resize, swap, zone, cancel", async () => {
-    const { a, b } = await two();
-    await h.act(() =>
-      h.rt.stores.workspace.getState().setRect(b, { x: 700, y: 8, width: 500, height: 300 }),
-    );
+  it("announces keyboard grid movement and resizing", async () => {
+    const { a } = await two();
     bar(a).focus();
     let before = seq();
     fireEvent.keyDown(bar(a), { key: "ArrowRight", altKey: true });
@@ -250,23 +245,7 @@ describe("every completed action is announced exactly once (DES-002 2.10.8)", ()
     before = seq();
     fireEvent.keyDown(bar(a), { key: "ArrowDown", altKey: true, ctrlKey: true });
     expect(seq() - before).toBe(1);
-    expect(text()).toMatch(/^A resized to \d+ by \d+\.$/);
-
-    before = seq();
-    fireEvent.keyDown(bar(a), { key: "ArrowRight", ctrlKey: true, shiftKey: true });
-    expect(seq() - before).toBe(1);
-    expect(text()).toBe("A swapped with B.");
-
-    before = seq();
-    await h.act(() => h.rt.stores.drag.getState().moveToZone(a, "left"));
-    expect(seq() - before).toBe(1);
-    expect(text()).toBe("A moved to the left half.");
-
-    before = seq();
-    h.rt.stores.drag.getState().beginKeyboard("keyboardMove", a);
-    await h.act(() => h.rt.stores.drag.getState().cancel());
-    expect(seq() - before).toBe(1);
-    expect(text()).toBe("Move cancelled.");
+    expect(text()).toBe("A resized on grid.");
   });
 
   it("tile slot, list reorder, pop out and dock", async () => {

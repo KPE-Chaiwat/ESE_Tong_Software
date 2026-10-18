@@ -3,23 +3,23 @@
 /**
  * What to poll. Addresses are protocol (0-based) addresses.
  */
-export type PollDefinition = { 
+export type PollDefinition = {
 /**
  * 0-247. 0 is rejected for RTU reads (BE-001 Q-04).
  */
-slaveId: number, 
+slaveId: number,
 /**
  * Read function code.
  */
-function: 1 | 2 | 3 | 4, 
+function: 1 | 2 | 3 | 4,
 /**
  * Protocol address 0-65535.
  */
-startAddress: number, 
+startAddress: number,
 /**
  * FC01/02: 1-2000. FC03/04: 1-125. `startAddress + quantity <= 65536`.
  */
-quantity: number, 
+quantity: number,
 /**
  * 20-60000 ms between cycle starts (BE-001 Q-05).
  */

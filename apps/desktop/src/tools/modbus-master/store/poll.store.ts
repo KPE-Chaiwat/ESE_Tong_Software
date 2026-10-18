@@ -339,6 +339,7 @@ export function createPollStore(deps: PollStoreDeps): PollStoreApi {
         const optimistic: PollConfig = {
           ...config,
           ...(partial.display === undefined ? {} : { display: partial.display }),
+          ...(partial.colorRules === undefined ? {} : { colorRules: partial.colorRules }),
           ...(partial.scale === undefined ? {} : { scale: partial.scale }),
           ...(partial.scaleOverrides === undefined
             ? {}
@@ -346,6 +347,22 @@ export function createPollStore(deps: PollStoreDeps): PollStoreApi {
           ...(partial.valueColumns === undefined ? {} : { valueColumns: partial.valueColumns }),
           ...(partial.aliases === undefined ? {} : { aliases: partial.aliases }),
         };
+        // Interpretation and rules form one validated setting; keep the applied view until acknowledged.
+        if (partial.colorRules !== undefined || partial.display !== undefined) {
+          try {
+            await ipc.setPollView(pollId, partial);
+            if (get().config === config)
+              set({
+                config: optimistic,
+                hasUnappliedEdits: partial.hasUnappliedEdits ?? before.hasUnappliedEdits,
+              });
+            return true;
+          } catch (e) {
+            const error = toIpcError(e);
+            set({ commandError: error.message, commandErrorField: error.field });
+            return false;
+          }
+        }
         set({
           config: optimistic,
           hasUnappliedEdits: partial.hasUnappliedEdits ?? before.hasUnappliedEdits,

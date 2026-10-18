@@ -9,19 +9,19 @@ import type { PollState } from "./PollState";
  * State of one poll plus its details. Payload of `PollStateChanged` (both channels). Never
  * dropped or coalesced; a repeated ok cycle (polling -> polling) is not re-emitted.
  */
-export type PollStatus = { pollId: PollId, state: PollState, 
+export type PollStatus = { pollId: PollId, state: PollState,
 /**
  * Failed cycles in a row in timeout / exception / badResponse, else 0.
  */
-consecutiveFailures: number, 
+consecutiveFailures: number,
 /**
  * Set in `exception`.
  */
-exceptionCode: ExceptionCode | null, 
+exceptionCode: ExceptionCode | null,
 /**
  * Set in `badResponse`.
  */
-badResponseKind: BadResponseKind | null, 
+badResponseKind: BadResponseKind | null,
 /**
  * Set in `badResponse`.
  */

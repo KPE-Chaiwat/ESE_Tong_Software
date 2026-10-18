@@ -113,7 +113,7 @@ describe("Open profile dialog (S3)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByLabelText("Host")).toHaveValue("10.0.0.5"));
     expect(
-      screen.getAllByRole("option").map((o) => o.getAttribute("aria-label") ?? o.textContent),
+      screen.getAllByRole("listitem").map((o) => o.getAttribute("aria-label") ?? o.textContent),
     ).toHaveLength(2);
     expect(within(toolbar()).getByText("Boiler-PLC")).toBeVisible();
     expect(screen.queryByText("· Modified")).not.toBeInTheDocument();
@@ -191,7 +191,7 @@ describe("Open profile dialog (S3)", () => {
     const dialog = await openList();
     await h.user.dblClick(await within(dialog).findByText("Old-file"));
     const text =
-      'This profile was saved by an earlier version. Its poll is now "Poll 1". Saving stores it in the new format, which earlier versions cannot open.';
+      "This profile was saved by an earlier version. Saving stores it in the new format, which earlier versions cannot open.";
     expect(await screen.findByText(text)).toBeVisible();
     expect(screen.queryByText("· Modified")).not.toBeInTheDocument();
     expect(h.rt.stores.profile.getState().modified).toBe(false);
@@ -213,7 +213,7 @@ describe("Open profile dialog (S3)", () => {
     });
     expect(screen.queryByText(/saved by an earlier version/)).not.toBeInTheDocument();
     const saved = h.ipc.callsOf("profilesSave").at(-1) as unknown[];
-    expect((saved[0] as { schemaVersion: number }).schemaVersion).toBe(2);
+    expect((saved[0] as { schemaVersion: number }).schemaVersion).toBe(5);
   });
 
   it("re-validates the connection after a load: a hand-edited value shows as invalid", async () => {
@@ -407,7 +407,7 @@ describe("Save profile as dialog (S4)", () => {
     expect(within(toolbar()).getByText("Boiler-PLC")).toBeVisible();
     expect(screen.queryByText("· Modified")).not.toBeInTheDocument();
     const saved = await h.ipc.profilesGet("Boiler-PLC");
-    expect(saved.schemaVersion).toBe(2);
+    expect(saved.schemaVersion).toBe(5);
     expect(saved.connection).toMatchObject({ mode: "tcp", host: "192.168.1.10" });
     expect(saved.polls.map((p) => p.name)).toEqual(["Tank 1"]);
     expect(h.ipc.callsOf("setProfileName").at(-1)).toEqual(["Boiler-PLC"]);

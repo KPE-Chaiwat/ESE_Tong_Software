@@ -10,13 +10,16 @@ import {
   useRef,
   useState,
 } from "react";
+import type { ValueColorRule } from "@/shared/bindings/ValueColorRule";
 import { shortcutKeyOf } from "@/shared/lib/shortcut-key";
 import { cn } from "@/shared/lib/utils";
 import { FieldMessage } from "@/shared/ui/field-message";
 import { Icon } from "@/shared/ui/icon";
 import { ContextMenu, type MenuEntry } from "@/shared/ui/menu";
 import { toDisplayAddress } from "../../lib/address";
+import { matchRule } from "../../lib/color-rules";
 import { formatBit, formatValue, VALUE_FORMAT_LABELS } from "../../lib/format";
+import { rawToX } from "../../lib/scale-math";
 import { SCALE_REGISTERS_ONLY } from "../../lib/scale-presets";
 import { effectiveValueColumns, type ScaledProvider, scaleAvailable } from "../../lib/scaled";
 import { selectAliasAt, selectEditingAddress } from "../../store/alias.store";
@@ -28,11 +31,15 @@ import {
   selectIsFocused,
   selectIsSelected,
 } from "../../store/poll-view-ui.store";
+import { registerColorDraft, registerRuleDraft } from "../../store/rule-draft";
 import { ColumnResizeHandle, fitWidth } from "../ColumnResizeHandle";
 import { usePoll, usePollAlias, usePollData, usePollUi, usePollViewRuntime } from "./context";
+import { focusInterpretationFormat } from "./focus-interpretation";
 import { NO_SCALE_TITLE } from "./poll-view.logic";
+import { RuleMarker, ruleClass, ruleStyle } from "./RuleMarker";
 import { ScaledCellView } from "./ScaledCellView";
 
+const EMPTY_RULES: readonly ValueColorRule[] = [];
 export const ROW_HEIGHT = 24;
 
 interface RowProps {
@@ -40,7 +47,7 @@ interface RowProps {
   top: number;
   address: number;
   base: 0 | 1;
-  format: "unsigned" | "signed" | "hex" | "binary";
+  format: import("@/shared/ipc/modbus-master.types").ValueFormat;
   bits: boolean;
   loading: boolean;
   stale: boolean;
@@ -48,6 +55,8 @@ interface RowProps {
   widths: Record<ColumnId, number>;
   scaled: ScaledProvider;
   gridId: string;
+  rules: readonly ValueColorRule[];
+  current: boolean;
   onRowClick: (address: number, e: ReactMouseEvent) => void;
   onRowDoubleClick: (address: number, e: ReactMouseEvent) => void;
   onRowContextMenu: (address: number, e: ReactMouseEvent) => void;
@@ -55,7 +64,7 @@ interface RowProps {
 }
 
 /** The inline alias editor (DES-002 2.3.5). */
-function AliasEditor({
+export function AliasEditor({
   address,
   base,
   width,
@@ -145,6 +154,8 @@ const Row = memo(function Row({
   widths,
   scaled,
   gridId,
+  rules,
+  current,
   onRowClick,
   onRowDoubleClick,
   onRowContextMenu,
@@ -161,6 +172,21 @@ const Row = memo(function Row({
   const overrideMarker = scaled.override?.(address) ?? cell?.override ?? null;
   const rawShown = empty ? "—" : bits ? formatBit(raw) : formatValue(raw, format);
 
+  const rawNumeric = empty ? null : bits ? (raw ? 1 : 0) : rawToX(raw, format === "signed");
+  const scaledNumeric = cell?.numeric ?? null;
+  const visibleScaled = cell?.text === "too large" ? null : scaledNumeric;
+  const match = (column: "Raw" | "Scaled") =>
+    matchRule(rules, {
+      address,
+      raw: rawNumeric,
+      scaled: scaledNumeric,
+      displayed: column === "Raw" ? rawNumeric : visibleScaled,
+      column,
+      current: current && !stale && !empty,
+      format,
+    });
+  const rawMatch = match("Raw");
+  const scaledMatch = match("Scaled");
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard selection is handled by the grid.
     <div
@@ -211,7 +237,7 @@ const Row = memo(function Row({
               role="gridcell"
               data-cell="address"
               style={{ width }}
-              className="flex items-center justify-end gap-1 truncate px-2 font-mono leading-6"
+              className="flex select-none items-center justify-end gap-1 truncate px-2 font-mono leading-6"
             >
               {overrideMarker ? (
                 <span role="img" title={overrideMarker.tooltip} aria-label={overrideMarker.tooltip}>
@@ -228,17 +254,28 @@ const Row = memo(function Row({
               key={id}
               role="gridcell"
               data-cell="raw"
-              style={{ width }}
+              style={{ width, ...ruleStyle(rawMatch) }}
               className={cn(
-                "truncate px-2 text-right font-mono leading-6",
+                "select-none truncate px-2 text-right font-mono leading-6",
+                ruleClass(rawMatch),
                 (stale || empty) && "text-text-muted",
               )}
             >
+              <RuleMarker match={rawMatch} />
               {rawShown}
             </div>
           );
         }
-        return <ScaledCellView key={id} cell={cell} empty={empty} stale={stale} width={width} />;
+        return (
+          <ScaledCellView
+            key={id}
+            cell={cell}
+            match={scaledMatch}
+            empty={empty}
+            stale={stale}
+            width={width}
+          />
+        );
       })}
     </div>
   );
@@ -276,7 +313,9 @@ export const DataGrid = memo(function DataGrid({
 }: DataGridProps) {
   const runtime = usePollViewRuntime();
   const { actions, hostActions, stores } = runtime;
+  useEffect(() => stores.ui.getState().setGroupWidth(1), [stores.ui]);
   const config = usePoll((s) => s.config);
+  const current = usePoll((s) => s.state === "polling");
   const widths = usePollUi((s) => s.columnWidths);
   const focused = usePollUi((s) => s.focusAddress);
   const editingAddress = usePollAlias(selectEditingAddress);
@@ -598,6 +637,52 @@ export const DataGrid = memo(function DataGrid({
           } satisfies MenuEntry,
         ]
       : []),
+    {
+      kind: "item",
+      id: "register-colors",
+      label: `Set colors for register ${toDisplayAddress(menu?.address ?? stores.ui.getState().focusAddress ?? startAddress, config?.display.addressBase ?? 0)}…`,
+      onSelect: () => {
+        const address = menu?.address ?? stores.ui.getState().focusAddress;
+        if (address === null) return;
+        const ui = stores.ui.getState();
+        ui.setSetupOpen(true);
+        ui.setRuleDraft(
+          registerColorDraft(
+            config?.colorRules ?? [],
+            address,
+            toDisplayAddress(address, config?.display.addressBase ?? 0),
+          ),
+        );
+      },
+    },
+    {
+      kind: "item",
+      id: "value-color-rules",
+      label: "Value color rules…",
+      onSelect: () => {
+        const address = menu?.address ?? stores.ui.getState().focusAddress;
+        if (address === null) return;
+        const ui = stores.ui.getState();
+        ui.setSetupOpen(true);
+        ui.setRuleDraft(
+          registerRuleDraft(
+            config?.colorRules ?? [],
+            address,
+            toDisplayAddress(address, config?.display.addressBase ?? 0),
+          ),
+        );
+      },
+    },
+    {
+      kind: "item",
+      id: "format-endian",
+      label: "Format / endian…",
+      onSelect: () => {
+        const pollView = scrollRef.current?.closest('[data-slot="poll-view"]');
+        stores.ui.getState().setSetupOpen(true);
+        window.setTimeout(() => focusInterpretationFormat(pollView ?? null), 0);
+      },
+    },
     ...(hostActions.write
       ? [
           { kind: "separator", id: "sep-write" } satisfies MenuEntry,
@@ -695,6 +780,8 @@ export const DataGrid = memo(function DataGrid({
                 widths={widths}
                 scaled={scaled}
                 gridId={gridId}
+                rules={config?.colorRules ?? EMPTY_RULES}
+                current={current}
                 onRowClick={onRowClick}
                 onRowDoubleClick={onRowDoubleClick}
                 onRowContextMenu={onRowContextMenu}

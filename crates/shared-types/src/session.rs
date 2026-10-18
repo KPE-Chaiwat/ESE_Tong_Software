@@ -14,6 +14,7 @@ use crate::modbus::{
     PollUpdate, SessionReason, TrafficFrames,
 };
 use crate::view::{AliasEntry, DisplaySettings, ScaleOverride, ScaleSettings, ValueColumns};
+use crate::ValueColorRule;
 
 /// Runtime id of a poll: unique per session, never reused, not saved in profiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
@@ -152,6 +153,7 @@ pub struct PollConfigInput {
     pub name: String,
     pub definition: PollDefinition,
     pub display: DisplaySettings,
+    pub color_rules: Vec<ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     /// At most 64.
     pub scale_overrides: Vec<ScaleOverride>,
@@ -171,6 +173,7 @@ pub struct PollConfig {
     /// Run intent (Resume = true, Pause = false). Never marks the profile modified.
     pub active: bool,
     pub display: DisplaySettings,
+    pub color_rules: Vec<ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     pub scale_overrides: Vec<ScaleOverride>,
     pub value_columns: ValueColumns,
@@ -186,6 +189,9 @@ pub struct PollConfig {
 pub struct PollViewSettings {
     #[ts(optional)]
     pub display: Option<DisplaySettings>,
+    #[serde(default, deserialize_with = "non_null_patch")]
+    #[ts(optional)]
+    pub color_rules: Option<Vec<ValueColorRule>>,
     #[serde(default, with = "present")]
     #[ts(as = "Option<ScaleSettings>", optional = nullable)]
     pub scale: Option<Option<ScaleSettings>>,
@@ -417,6 +423,8 @@ pub struct HandoffRequested {
 #[ts(export)]
 #[serde(tag = "type")]
 pub enum PollViewEvent {
+    BulkOperationPrepare(crate::BulkOperationPrepare),
+    BulkOperationRelease(crate::BulkOperationRelease),
     /// Never dropped or coalesced.
     ConnectionStateChanged(ConnectionStatus),
     /// This poll only. Never dropped or coalesced; a pending `PollUpdate` is sent first.
@@ -435,4 +443,10 @@ pub enum PollViewEvent {
     ViewDetached(ViewDetached),
     /// Native window only: answer with `mm_provide_handoff` within 1 s.
     HandoffRequested(HandoffRequested),
+}
+
+fn non_null_patch<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
 }

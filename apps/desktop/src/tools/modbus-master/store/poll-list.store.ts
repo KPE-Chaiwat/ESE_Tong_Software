@@ -90,6 +90,7 @@ export interface PollListStoreDeps {
   >;
   toasts: ToastStoreApi;
   warn?: (message: string) => void;
+  canChangeDefinitions?: () => boolean;
 }
 
 const initialState: PollListState = {
@@ -241,6 +242,7 @@ export function createPollListStore(deps: PollListStoreDeps): PollListStoreApi {
       },
 
       async add() {
+        if (deps.canChangeDefinitions?.() === false) return null;
         const s = get();
         if (s.order.length >= MAX_POLLS) {
           toasts.getState().show(MAX_POLLS_MESSAGE);
@@ -262,6 +264,7 @@ export function createPollListStore(deps: PollListStoreDeps): PollListStoreApi {
       },
 
       async duplicate(id) {
+        if (deps.canChangeDefinitions?.() === false) return null;
         const s = get();
         if (!(id in s.polls) || s.adding) return null;
         if (s.order.length >= MAX_POLLS) {
@@ -343,6 +346,7 @@ export function createPollListStore(deps: PollListStoreDeps): PollListStoreApi {
       },
 
       async setOrder(order, movedId) {
+        if (deps.canChangeDefinitions?.() === false) return false;
         const before = get().order;
         const known = new Set(before);
         if (

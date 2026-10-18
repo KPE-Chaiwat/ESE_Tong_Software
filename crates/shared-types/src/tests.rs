@@ -230,6 +230,7 @@ fn poll_profile(name: &str) -> PollProfile {
         },
         active: true,
         display: DisplaySettings::default(),
+        color_rules: Vec::new(),
         scale: None,
         scale_overrides: vec![],
         value_columns: ValueColumns::Raw,
@@ -248,6 +249,7 @@ fn poll_profile(name: &str) -> PollProfile {
                 z: 1,
                 state: SubWindowState::Normal,
                 restore: None,
+                grid: None,
             }),
             native: None,
         },
@@ -271,7 +273,7 @@ fn profile_round_trip() {
         migrated_from: None,
     };
     let v = serde_json::to_value(&p).unwrap();
-    assert_eq!(v["schemaVersion"], 2);
+    assert_eq!(v["schemaVersion"], 5);
     assert_eq!(v["polls"][0]["definition"]["scanRateMs"], 1000);
     assert_eq!(v["polls"][0]["display"]["showAlias"], true);
     assert_eq!(v["polls"][0]["view"]["workspace"]["state"], "normal");

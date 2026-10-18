@@ -1,4 +1,4 @@
-import { vi } from "vitest";
+﻿import { vi } from "vitest";
 import { createIpcRuntime } from "./runtime";
 
 afterEach(() => {
@@ -58,7 +58,15 @@ describe("createIpcRuntime (test hooks only with the env flag)", () => {
       {
         name: "Poll 1",
         definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
-        display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+        display: {
+          format: "unsigned",
+          addressBase: 0,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
+        colorRules: [],
         scale: null,
         scaleOverrides: [],
         valueColumns: "raw",
@@ -109,7 +117,15 @@ describe("createIpcRuntime hooks (REPORT-003 section 5, item 3)", () => {
         {
           name: "Kept",
           definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
-          display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+          display: {
+            format: "unsigned",
+            addressBase: 0,
+            showAlias: true,
+            copyAlias: false,
+            swapBytes: false,
+            reverseWords: false,
+          },
+          colorRules: [],
           scale: null,
           scaleOverrides: [],
           valueColumns: "raw",

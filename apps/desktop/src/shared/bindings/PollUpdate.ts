@@ -4,11 +4,11 @@ import type { PollId } from "./PollId";
 /**
  * Values of one successful poll cycle.
  */
-export type PollUpdate = { pollId: PollId, 
+export type PollUpdate = { pollId: PollId,
 /**
  * Cycle sequence number, strictly increasing per poll. Gaps mean coalesced updates.
  */
-seq: number, at: number, slaveId: number, function: 1 | 2 | 3 | 4, startAddress: number, 
+seq: number, at: number, slaveId: number, function: 1 | 2 | 3 | 4, startAddress: number,
 /**
  * Raw u16 register values, or 0/1 for coils and discrete inputs. Length = quantity.
  */

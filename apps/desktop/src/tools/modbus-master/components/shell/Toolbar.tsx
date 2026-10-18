@@ -6,6 +6,7 @@ import { MenuButton, type MenuEntry } from "@/shared/ui/menu";
 import { StatusPill, type StatusVariant } from "@/shared/ui/status-pill";
 import { MAX_POLLS, MAX_POLLS_MESSAGE } from "../../lib/poll-names";
 import { pollSummary, type SummaryTone } from "../../lib/poll-summary";
+import { SIDEBAR_ID, SIDEBAR_TOGGLE_ID } from "../../lib/sidebar";
 import { hostMarker, hostStateOf } from "../../lib/status-line";
 import { windowMenuEntries } from "../../lib/window-menu";
 import {
@@ -19,10 +20,12 @@ import {
   useActions,
   useArrange,
   useConnection,
+  usePollBulk,
   usePollList,
   usePrefs,
   useProfileInfo,
   useRuntime,
+  useSidebarExpanded,
   useWorkspace,
 } from "../context";
 import { type ToolbarSqueeze, toolbarSqueezeFor } from "./toolbar.logic";
@@ -81,6 +84,8 @@ export function Toolbar() {
   const { workspace, pollList, prefs, arrange, connection: connStore, section } = runtime.stores;
   const width = useWindowWidth();
   const squeeze = toolbarSqueezeFor(width);
+  const expanded = useSidebarExpanded();
+  const sidebarLabel = expanded ? "Hide sidebar" : "Show sidebar";
 
   const state = useConnection((s) => s.state);
   const pending = useConnection((s) => s.pending);
@@ -90,6 +95,7 @@ export function Toolbar() {
   const profileName = useProfileInfo((s) => s.name);
   const modified = useProfileInfo((s) => s.modified);
   const compact = usePrefs((s) => s.compact);
+  const bulkLocked = usePollBulk((s) => s.phase !== "idle");
   const adding = usePollList((s) => s.adding);
   const count = usePollList((s) => s.order.length);
   const anyRunning = usePollList(selectAnyRunning);
@@ -224,6 +230,7 @@ export function Toolbar() {
     const list = pollList.getState();
     const visible = visibleIds(items);
     return windowMenuEntries({
+      gridMode: true,
       visibleCount: visible.length,
       minimizedCount: Object.values(items).filter((i) => i.state === "minimized").length,
       maximizedCount: Object.values(items).filter((i) => i.state === "maximized").length,
@@ -241,6 +248,7 @@ export function Toolbar() {
       monitors,
       arrangeTarget,
       onTile: () => workspace.getState().tile(),
+      onResetGrid: () => workspace.getState().resetGrid(),
       onTileMode: (on) => workspace.getState().setTileMode(on),
       onCascade: () => workspace.getState().cascade(),
       onArrangeMinimized: () => actions.arrangeMinimized(),
@@ -288,8 +296,21 @@ export function Toolbar() {
         <Icon name="chevron-down" className="size-3.5" />
       </MenuButton>
       <Button
+        id={SIDEBAR_TOGGLE_ID}
+        size={squeeze.narrow ? "icon-sm" : "sm"}
+        variant="outline"
+        aria-label={sidebarLabel}
+        aria-expanded={expanded}
+        aria-controls={SIDEBAR_ID}
+        title={`${sidebarLabel} (Ctrl+\\)`}
+        onClick={() => actions.toggleSidebar()}
+      >
+        <Icon name={expanded ? "panel-left-close" : "panel-left-open"} />
+        {squeeze.narrow ? null : sidebarLabel}
+      </Button>
+      <Button
         size="sm"
-        disabled={limit || adding || !ready}
+        disabled={bulkLocked || limit || adding || !ready}
         title={limit ? MAX_POLLS_MESSAGE : "New poll (Ctrl+Shift+N)"}
         onClick={() => void actions.newPoll()}
       >

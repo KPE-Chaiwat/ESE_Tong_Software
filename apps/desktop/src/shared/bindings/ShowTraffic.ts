@@ -4,7 +4,7 @@ import type { PollId } from "./PollId";
 /**
  * Payload of `ShowTraffic` (`mm_show_traffic`).
  */
-export type ShowTraffic = { 
+export type ShowTraffic = {
 /**
  * Filter the traffic panel to this poll; null = no filter change.
  */

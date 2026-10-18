@@ -7,7 +7,7 @@ import { createProfilesStore, type ProfilesStoreApi, visibleProfiles } from "./p
 
 function profile(name: string): Profile {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     name,
     connection: { mode: "tcp", host: "192.168.1.10", port: 502, timeoutMs: 1000 },
     autoStartPoll: true,

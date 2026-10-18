@@ -1,4 +1,4 @@
-// Pure helpers of the poll list (DES-002 2.2.3, FE-002 task 06). No React, no IPC, no store.
+﻿// Pure helpers of the poll list (DES-002 2.2.3, FE-002 task 06). No React, no IPC, no store.
 import type {
   Counters,
   PollConfigInput,
@@ -21,7 +21,15 @@ export function defaultPollInput(name: string): PollConfigInput {
   return {
     name,
     definition: defaultPollDefinition(),
-    display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+    display: {
+      format: "unsigned",
+      addressBase: 0,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
+    colorRules: [],
     scale: null,
     scaleOverrides: [],
     valueColumns: "raw",

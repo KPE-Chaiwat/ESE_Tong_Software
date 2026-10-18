@@ -17,10 +17,11 @@ import {
   selectPollLastHost,
   selectPollStatus,
 } from "../../store/poll-list.store";
-import { useActions, useDrag, usePollList, useRuntime } from "../context";
+import { useActions, useDrag, usePollList, usePollSelection, useRuntime } from "../context";
 import { InlineRename } from "../InlineRename";
 import { PollChip } from "../PollChip";
 import { startListGesture } from "./list-gesture";
+import { PollBulkActions } from "./PollBulkActions";
 
 export const EMPTY_LIST_TEXT =
   "No polls yet. Press New poll (Ctrl+Shift+N) to read registers from this connection.";
@@ -36,22 +37,22 @@ function isRowClick(e: MouseEvent<HTMLElement>): boolean {
   return (
     target instanceof Element &&
     e.currentTarget.contains(target) &&
-    !target.closest("button, input, [role=menu]")
+    !target.closest("button:not([data-poll-show]), input, [role=menu]")
   );
 }
 
 function focusRow(listEl: HTMLElement | null, id: PollId) {
-  queueMicrotask(() => listEl?.querySelector<HTMLElement>(`[data-poll-id="${id}"]`)?.focus());
+  queueMicrotask(() =>
+    listEl?.querySelector<HTMLElement>(`[data-poll-id="${id}"] [data-poll-show]`)?.focus(),
+  );
 }
 
 const Row = memo(function Row({
   id,
-  tabbable,
   listRef,
 }: {
   id: PollId;
-  tabbable: boolean;
-  listRef: RefObject<HTMLDivElement | null>;
+  listRef: RefObject<HTMLUListElement | null>;
 }) {
   const runtime = useRuntime();
   const actions = useActions();
@@ -61,6 +62,8 @@ const Row = memo(function Row({
   const hostState = usePollList(selectPollHostState(id));
   const lastHost = usePollList(selectPollLastHost(id));
   const hasData = usePollList(selectPollHasData(id));
+  const frozen = usePollSelection((s) => s.frozen);
+  const checked = usePollSelection((s) => s.selectedIds.has(id));
   const selected = usePollList((s) => s.selectedId === id);
   const renaming = usePollList((s) => s.renamingId === id);
   const isFirst = usePollList((s) => s.order[0] === id);
@@ -95,9 +98,7 @@ const Row = memo(function Row({
   });
 
   return (
-    <div
-      role="option"
-      aria-selected={selected}
+    <li
       aria-label={pollRowLabel(config.name, pill.label, marker?.text ?? null)}
       title={config.name}
       // The tooltip has the counters and the last update; they are read when it is wanted, not at
@@ -113,7 +114,6 @@ const Row = memo(function Row({
           errors: entry.counters.counters.errors + entry.counters.counters.timeouts,
         });
       }}
-      tabIndex={tabbable ? 0 : -1}
       data-poll-id={id}
       data-slot="poll-row"
       data-dragging={dragging ? "true" : undefined}
@@ -134,7 +134,7 @@ const Row = memo(function Row({
       }}
       onKeyDown={(e) => {
         // The keys of the rename field and of the menus are theirs.
-        if (e.target !== e.currentTarget) return;
+        if (!(e.target instanceof HTMLElement) || !e.target.matches("[data-poll-show]")) return;
         const handled = () => {
           e.preventDefault();
           e.stopPropagation();
@@ -163,11 +163,89 @@ const Row = memo(function Row({
         }
       }}
       className={cn(
-        "group relative flex h-12 cursor-pointer select-none flex-col justify-center rounded-[10px] py-2 pl-4 pr-2.5 outline-none focus-ring",
+        "group relative flex h-12 cursor-pointer select-none flex-col justify-center rounded-[10px] py-2 pl-11 pr-2.5 outline-none focus-ring",
         selected ? "bg-selected" : "hover:bg-neutral-tint",
         dragging && "opacity-40",
       )}
     >
+      <button
+        type="button"
+        tabIndex={0}
+        data-poll-show
+        aria-label={pollRowLabel(config.name, pill.label, marker?.text ?? null)}
+        aria-current={selected ? "true" : undefined}
+        aria-description={selected ? "Current poll" : undefined}
+        className="absolute inset-0 rounded-[10px] outline-none focus-ring"
+      />
+      <input
+        type="checkbox"
+        aria-label={`Select ${config.name}`}
+        checked={checked}
+        aria-disabled={frozen}
+        onChange={() => {}}
+        onClick={(e) => {
+          if (frozen) {
+            e.preventDefault();
+            return;
+          }
+          const selection = runtime.stores.pollSelection.getState();
+          if (e.shiftKey) selection.addRange(id, pollList.getState().order);
+          else selection.toggle(id);
+          runtime.stores.announcer
+            .getState()
+            .announce(
+              `${runtime.stores.pollSelection.getState().selectedIds.size} polls selected.`,
+            );
+        }}
+        onKeyDown={(e) => {
+          if (frozen) {
+            if (e.key !== "Tab") e.preventDefault();
+            return;
+          }
+          if (e.nativeEvent.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+          const order = pollList.getState().order;
+          const index = order.indexOf(id);
+          const nextIndex =
+            e.key === "Home"
+              ? 0
+              : e.key === "End"
+                ? order.length - 1
+                : e.key === "ArrowUp"
+                  ? Math.max(0, index - 1)
+                  : e.key === "ArrowDown"
+                    ? Math.min(order.length - 1, index + 1)
+                    : null;
+          if (nextIndex === null) {
+            if (e.key === " " && e.shiftKey) {
+              e.preventDefault();
+              e.stopPropagation();
+              runtime.stores.pollSelection.getState().addRange(id, order);
+              runtime.stores.announcer
+                .getState()
+                .announce(
+                  `${runtime.stores.pollSelection.getState().selectedIds.size} polls selected.`,
+                );
+            }
+            return;
+          }
+          e.preventDefault();
+          e.stopPropagation();
+          const next = order[nextIndex];
+          if (next === undefined) return;
+          if (e.shiftKey) {
+            runtime.stores.pollSelection.getState().addRange(next, order, id);
+            runtime.stores.announcer
+              .getState()
+              .announce(
+                `${runtime.stores.pollSelection.getState().selectedIds.size} polls selected.`,
+              );
+          }
+          listRef.current
+            ?.querySelector<HTMLInputElement>(`[data-poll-id="${next}"] input[type=checkbox]`)
+            ?.focus();
+        }}
+        className="absolute left-2 size-7 cursor-pointer accent-dark outline-none focus-ring"
+      />
       {selected ? (
         <span
           aria-hidden="true"
@@ -178,7 +256,7 @@ const Row = memo(function Row({
         name="grip-vertical"
         className="pointer-events-none absolute left-1 top-1/2 size-3 -translate-y-1/2 text-text-muted opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
       />
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="pointer-events-none flex min-w-0 items-center gap-1.5">
         {renaming ? (
           <InlineRename
             name={config.name}
@@ -187,7 +265,7 @@ const Row = memo(function Row({
               pollList.getState().cancelRename();
               focusRow(listRef.current, id);
             }}
-            inputClassName="text-sm"
+            inputClassName="pointer-events-auto text-sm"
           />
         ) : (
           <span className="min-w-0 truncate text-sm font-semibold">{config.name}</span>
@@ -198,21 +276,18 @@ const Row = memo(function Row({
             {marker.text}
           </span>
         ) : null}
-        <span className="ml-auto opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
+        <span className="pointer-events-auto ml-auto opacity-0 group-focus-within:opacity-100 group-hover:opacity-100">
           <MenuButton
             label={`Actions for ${config.name}`}
             entries={entries}
             alignEnd
-            // Interactive content inside an option is not reachable for a screen reader; the row's
-            // own menu (Shift+F10, the menu key) is the keyboard route (REV-006 n-9).
-            skipTab
             className="inline-flex size-6 items-center justify-center rounded-md outline-none hover:bg-neutral-tint focus-ring"
           >
             <Icon name="ellipsis" />
           </MenuButton>
         </span>
       </div>
-      <div className="flex min-w-0 items-center gap-1.5">
+      <div className="pointer-events-none flex min-w-0 items-center gap-1.5">
         <PollChip
           state={status.state}
           exceptionCode={status.exceptionCode}
@@ -232,7 +307,7 @@ const Row = memo(function Row({
           if (restore) focusRow(listRef.current, id);
         }}
       />
-    </div>
+    </li>
   );
 });
 
@@ -240,7 +315,7 @@ const Row = memo(function Row({
  * The 2 px insertion line with its 8 px circle (DES-002 2.10.6), between two rows. It is the only
  * part of the list that follows the drag, so the rows do not render while the pointer moves.
  */
-function DropIndicator({ listRef }: { listRef: RefObject<HTMLDivElement | null> }) {
+function DropIndicator({ listRef }: { listRef: RefObject<HTMLUListElement | null> }) {
   const gap = useDrag(selectListGapIndex);
   const [top, setTop] = useState(0);
 
@@ -275,11 +350,10 @@ function DropIndicator({ listRef }: { listRef: RefObject<HTMLDivElement | null> 
  */
 export function PollList() {
   const order = usePollList((s) => s.order);
-  const selectedId = usePollList((s) => s.selectedId);
+  const frozen = usePollSelection((s) => s.frozen);
+  const selectedCount = usePollSelection((s) => s.selectedIds.size);
   const runtime = useRuntime();
-  const listRef = useRef<HTMLDivElement>(null);
-  // One row is in the tab order: the selected one, else the first.
-  const tabbableId = selectedId !== null && order.includes(selectedId) ? selectedId : order[0];
+  const listRef = useRef<HTMLUListElement>(null);
 
   return (
     <section aria-labelledby="polls-heading" className="flex min-h-0 flex-1 flex-col gap-1">
@@ -289,16 +363,64 @@ export function PollList() {
       >
         Polls · {order.length} of {MAX_POLLS}
       </h3>
+      <div className="flex flex-wrap items-center gap-1 text-xs">
+        <span className="mr-auto">{selectedCount} selected</span>
+        <button
+          type="button"
+          className="min-h-7 rounded-pill px-2 outline-none focus-ring disabled:opacity-50"
+          disabled={frozen || order.length === 0 || selectedCount === order.length}
+          onClick={() => {
+            runtime.stores.pollSelection.getState().selectAll(order);
+            runtime.stores.announcer.getState().announce(`${order.length} polls selected.`);
+          }}
+        >
+          Select all
+        </button>
+        <button
+          type="button"
+          className="min-h-7 rounded-pill px-2 outline-none focus-ring disabled:opacity-50"
+          disabled={frozen || selectedCount === 0}
+          onClick={() => {
+            runtime.stores.pollSelection.getState().clear();
+            runtime.stores.announcer.getState().announce("0 polls selected.");
+          }}
+        >
+          Clear selection
+        </button>
+      </div>
+      <PollBulkActions />
       {order.length === 0 ? (
         <p className="px-2 py-6 text-center text-sm text-text-muted">{EMPTY_LIST_TEXT}</p>
       ) : (
-        <div
+        <ul
           ref={listRef}
-          role="listbox"
           aria-label="Polls"
           data-region="polls"
           className="relative flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto"
           onKeyDown={(e) => {
+            const target = e.target as HTMLElement;
+            if (
+              e.nativeEvent.isComposing ||
+              e.altKey ||
+              target.closest(
+                "[role=menu], textarea, [contenteditable=true], input:not([type=checkbox]), button:not([data-poll-show])",
+              )
+            )
+              return;
+            if ((e.ctrlKey || e.metaKey) && shortcutKeyOf(e) === "a") {
+              e.preventDefault();
+              e.stopPropagation();
+              const selection = runtime.stores.pollSelection.getState();
+              if (e.shiftKey) selection.clear();
+              else selection.selectAll(order);
+              runtime.stores.announcer
+                .getState()
+                .announce(
+                  `${runtime.stores.pollSelection.getState().selectedIds.size} polls selected.`,
+                );
+              return;
+            }
+            if (target.matches("input")) return;
             if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
             if ((e.target as HTMLElement).closest("[role=menu]")) return;
             e.preventDefault();
@@ -318,10 +440,10 @@ export function PollList() {
           }}
         >
           {order.map((id) => (
-            <Row key={id} id={id} tabbable={id === tabbableId} listRef={listRef} />
+            <Row key={id} id={id} listRef={listRef} />
           ))}
           <DropIndicator listRef={listRef} />
-        </div>
+        </ul>
       )}
       <p className="mt-auto pt-2 text-[12.5px] leading-snug text-text-muted">{LIST_HINT}</p>
     </section>

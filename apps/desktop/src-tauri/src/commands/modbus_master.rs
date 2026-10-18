@@ -10,10 +10,10 @@ use std::sync::Arc;
 use modbus_master::{EventSink, Session, SessionDeps};
 use serde::Serialize;
 use shared_types::{
-    AppErrorCode, ArrangeLayout, ArrangeResult, ArrangeTarget, ConnectionConfig, PollConfigInput,
-    PollDefinition, PollHostKind, PollId, PollViewEvent, PollViewSettings, PollViewSnapshot,
-    PopOutAnchor, Profile, SerialPortInfo, SessionEvent, SessionSnapshot, ShowPollPlacement,
-    ViewToken, WorkspaceLayout, WorkspaceRect, WriteRequest, WriteResult,
+    AppErrorCode, ArrangeLayout, ArrangeResult, ArrangeTarget, ConnectionConfig, PollDefinition,
+    PollHostKind, PollId, PollViewEvent, PollViewSnapshot, PopOutAnchor, Profile, SerialPortInfo,
+    SessionEvent, SessionSnapshot, ShowPollPlacement, ViewToken, WorkspaceLayout, WorkspaceRect,
+    WriteRequest, WriteResult,
 };
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State, Window};
@@ -171,10 +171,11 @@ pub async fn mm_set_auto_start_poll(
 pub async fn mm_add_poll(
     window: Window,
     state: State<'_, AppState>,
-    input: PollConfigInput,
+    input: serde_json::Value,
     host: PollHostKind,
 ) -> AppResult<PollId> {
     let (session, connection) = session_of(&window, &state)?;
+    let input = super::value_inputs::poll_input(input)?;
     let id = session.add_poll(input, host).await?;
     if host == PollHostKind::Native {
         // 24 px from the invoking window (H2).
@@ -274,11 +275,11 @@ pub async fn mm_set_poll_view(
     window: Window,
     state: State<'_, AppState>,
     poll_id: PollId,
-    view: PollViewSettings,
+    view: serde_json::Value,
 ) -> AppResult<()> {
     Ok(state
         .session(window.label())?
-        .set_poll_view(poll_id, view)
+        .set_poll_view(poll_id, super::value_inputs::poll_view(view)?)
         .await?)
 }
 
@@ -602,9 +603,10 @@ pub async fn mm_apply_profile(
     app: AppHandle,
     window: Window,
     state: State<'_, AppState>,
-    profile: Profile,
+    profile: serde_json::Value,
 ) -> AppResult<SessionSnapshot> {
     let (session, connection) = session_of(&window, &state)?;
+    let profile = super::value_inputs::profile(profile)?;
     poll_windows::apply_profile(&desktop(&app), &session, &connection, profile).await
 }
 

@@ -7,11 +7,11 @@ import type { WorkspaceLayout } from "./WorkspaceLayout";
 /**
  * Result of `mm_open_session`.
  */
-export type SessionSnapshot = { connection: ConnectionStatus, autoStartPoll: boolean, 
+export type SessionSnapshot = { connection: ConnectionStatus, autoStartPoll: boolean,
 /**
  * In list order.
  */
-polls: Array<PollSummary>, counters: ConnectionCounters, workspaceLayout: WorkspaceLayout, compact: boolean, askOnPollClose: boolean, 
+polls: Array<PollSummary>, counters: ConnectionCounters, workspaceLayout: WorkspaceLayout, compact: boolean, askOnPollClose: boolean,
 /**
  * Set by `mm_set_profile_name`.
  */

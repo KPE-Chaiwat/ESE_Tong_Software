@@ -17,8 +17,11 @@
 //! - Hosting (attach, detach, pop out, dock, close, layout) only changes routing and
 //!   stored UI fields: never the scheduler, the link or the counters (DES-002 8.1).
 
+mod bulk;
+pub use bulk::BulkLease;
+
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use modbus_core::{
@@ -49,8 +52,9 @@ use crate::scheduler::{on_time_start, Scheduler};
 use crate::timer::{NoTimerResolution, PrecisionHold, TimerResolution};
 use crate::traffic::TrafficLog;
 use crate::validate::{
-    validate_connection, validate_handoff, validate_layout, validate_poll, validate_poll_name,
-    validate_view_parts, validate_workspace_rect, validate_write, ValidationError,
+    validate_color_rules, validate_connection, validate_handoff, validate_layout, validate_poll,
+    validate_poll_name, validate_view_parts, validate_workspace_rect, validate_write,
+    ValidationError,
 };
 
 /// Pause after an RTU broadcast before the next request, so slaves can process it
@@ -88,7 +92,7 @@ pub enum SessionError {
 
 fn invalid(field: &'static str, message: impl Into<String>) -> SessionError {
     SessionError::Validation(ValidationError {
-        field,
+        field: field.into(),
         message: message.into(),
     })
 }
@@ -174,6 +178,7 @@ enum Command {
 /// Handle to a running session. Dropping every handle (or calling [`Session::close`])
 /// stops the actor, which closes the link and aborts any connect or request in progress.
 pub struct Session {
+    poll_ids: Arc<Mutex<HashMap<PollId, u64>>>,
     tx: mpsc::UnboundedSender<Command>,
 }
 
@@ -181,9 +186,30 @@ impl Session {
     /// Starts a session in `idle` with no polls. Must be called inside a Tokio runtime.
     pub fn spawn(sink: SessionSink, deps: SessionDeps) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
-        let actor = Actor::new(rx, sink, deps);
+        let poll_ids = Arc::new(Mutex::new(HashMap::new()));
+        let mut actor = Actor::new(rx, sink, deps);
+        actor.poll_ids = poll_ids.clone();
         tokio::spawn(actor.run());
-        Self { tx }
+        Self { tx, poll_ids }
+    }
+
+    /// Synchronous routing guard for native windows whose definition was removed.
+    #[must_use]
+    pub fn contains_poll(&self, id: PollId) -> bool {
+        self.poll_ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&id)
+    }
+
+    /// Incarnation captured by a native window before registering its destruction callback.
+    #[must_use]
+    pub fn native_generation(&self, id: PollId) -> Option<u64> {
+        self.poll_ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&id)
+            .copied()
     }
 
     async fn call<T: Send + 'static>(
@@ -192,7 +218,18 @@ impl Session {
     ) -> Result<T, SessionError> {
         let (ack, rx) = oneshot::channel();
         let call: Call = Box::new(move |actor| {
-            let _ = ack.send(f(actor));
+            let before = actor.bulk_guards();
+            let result = f(actor);
+            actor.observe_bulk_change(before);
+            *actor
+                .poll_ids
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = actor
+                .polls
+                .iter()
+                .map(|p| (p.id, p.native_generation))
+                .collect();
+            let _ = ack.send(result);
         });
         self.tx
             .send(Command::Call(call))
@@ -204,7 +241,11 @@ impl Session {
         &self,
         f: impl FnOnce(&mut Actor) -> Result<T, SessionError> + Send + 'static,
     ) -> Result<T, SessionError> {
-        self.call(f).await?
+        self.call(move |a| {
+            a.check_bulk_idle()?;
+            f(a)
+        })
+        .await?
     }
 
     // ---- connection ----------------------------------------------------------------
@@ -247,7 +288,11 @@ impl Session {
     /// # Errors
     /// `Closed`.
     pub async fn set_auto_start_poll(&self, enabled: bool) -> Result<(), SessionError> {
-        self.call(move |a| a.auto_start_poll = enabled).await
+        self.try_call(move |a| {
+            a.auto_start_poll = enabled;
+            Ok(())
+        })
+        .await
     }
 
     // ---- polls ---------------------------------------------------------------------
@@ -314,11 +359,12 @@ impl Session {
     /// # Errors
     /// `Closed`.
     pub async fn set_all_polls_active(&self, active: bool) -> Result<(), SessionError> {
-        self.call(move |a| {
+        self.try_call(move |a| {
             let ids: Vec<PollId> = a.polls.iter().map(|p| p.id).collect();
             for id in ids {
                 let _ = a.set_poll_active(id, active);
             }
+            Ok(())
         })
         .await
     }
@@ -417,7 +463,13 @@ impl Session {
         host: PollHostKind,
         sink: ViewSink,
     ) -> Result<PollViewSnapshot, SessionError> {
-        self.try_call(move |a| a.attach_view(id, host, sink)).await
+        self.call(move |a| {
+            if !a.bulk_can_attach(id) {
+                a.check_bulk_idle()?;
+            }
+            a.attach_view(id, host, sink)
+        })
+        .await?
     }
 
     /// Detaches a view. A token that is not the current one is ignored (late detach).
@@ -443,6 +495,24 @@ impl Session {
     /// `Closed`.
     pub async fn native_window_destroyed(&self, id: PollId) -> Result<(), SessionError> {
         self.call(move |a| a.native_window_destroyed(id)).await
+    }
+
+    /// Apply native destruction only to the actual incarnation that generated it.
+    /// # Errors
+    /// The session has ended.
+    pub async fn native_incarnation_destroyed(
+        &self,
+        id: PollId,
+        generation: u64,
+    ) -> Result<(), SessionError> {
+        self.call(move |a| {
+            if a.poll(id)
+                .is_some_and(|p| p.native_generation == generation)
+            {
+                a.native_window_destroyed(id);
+            }
+        })
+        .await
     }
 
     /// Show (H12-H14). With `placement` the poll is shown in the workspace at that
@@ -864,6 +934,8 @@ impl LinkLoad {
 }
 
 pub(crate) struct Actor {
+    poll_ids: Arc<Mutex<HashMap<PollId, u64>>>,
+    bulk: bulk::BulkState,
     cmd_rx: mpsc::UnboundedReceiver<Command>,
     clock: Arc<dyn Clock>,
     connector: Arc<dyn Connector>,
@@ -1110,6 +1182,8 @@ impl Actor {
             framing: Framing::Tcp,
             auto_start_poll: false,
             polls: Vec::new(),
+            poll_ids: Arc::new(Mutex::new(HashMap::new())),
+            bulk: bulk::BulkState::default(),
             next_poll_id: 0,
             next_view_token: 0,
             scheduler: Scheduler::default(),
@@ -1243,6 +1317,10 @@ impl Actor {
     }
 
     fn emit_list(&mut self) {
+        if self.bulk.reservation.is_some() {
+            self.bulk.list_pending = true;
+            return;
+        }
         let polls = self.polls.iter().map(PollEntry::summary).collect();
         self.emitter
             .now(SessionEvent::PollListChanged(PollList { polls }));
@@ -1913,6 +1991,8 @@ impl Actor {
             Some(&input.scale_overrides),
             Some(&input.aliases),
         )?;
+        validate_color_rules(&input.color_rules, input.display.format)?;
+        shared_types::normalize_color_rules(&mut input.color_rules);
         sort_aliases(&mut input.aliases);
         let active = self.auto_start_poll;
         let connected = self.conn.is_connected();
@@ -1945,6 +2025,7 @@ impl Actor {
             definition: input.definition,
             active,
             display: input.display,
+            color_rules: input.color_rules,
             scale: input.scale,
             scale_overrides: input.scale_overrides,
             value_columns: input.value_columns,
@@ -1962,6 +2043,7 @@ impl Actor {
             open: true,
             workspace: None,
             native: None,
+            native_generation: 0,
             handoff: None,
             view: None,
         }
@@ -1991,6 +2073,7 @@ impl Actor {
             name: copy_name(&src.name, &taken),
             definition: src.definition.clone(),
             display: src.display.clone(),
+            color_rules: src.color_rules.clone(),
             scale: src.scale.clone(),
             scale_overrides: src.scale_overrides.clone(),
             value_columns: src.value_columns,
@@ -2128,7 +2211,28 @@ impl Actor {
             view.aliases.as_deref(),
         )?;
         let p = self.poll_or_err(id)?;
+        let display = view.display.as_ref().unwrap_or(&p.display);
+        let rules = view.color_rules.as_ref().unwrap_or(&p.color_rules);
+        if let Err(error) = validate_color_rules(rules, display.format) {
+            if view.display.is_some()
+                && view.color_rules.is_none()
+                && error.message == shared_types::INTEGER_THRESHOLD_SYNTAX
+            {
+                let index = error
+                    .field
+                    .split(['[', ']'])
+                    .nth(1)
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(0);
+                return Err(invalid("colorRules", format!("Interpretation not applied. Rule \"{}\" requires whole-number thresholds for 64-bit integers.", rules[index].name)));
+            }
+            return Err(error.into());
+        }
         let before = p.config();
+        if let Some(mut rules) = view.color_rules {
+            shared_types::normalize_color_rules(&mut rules);
+            p.color_rules = rules;
+        }
         let edits_before = p.has_unapplied_edits;
         if let Some(d) = view.display {
             p.display = d;
@@ -2372,6 +2476,7 @@ impl Actor {
             .view
             .as_ref()
             .is_some_and(|v| v.host == PollHostKind::Workspace);
+        p.native_generation += 1;
         p.host = PollHostKind::Native;
         p.open = true;
         if handoff.is_some() {
@@ -2529,7 +2634,7 @@ impl Actor {
 
     // ---- profiles --------------------------------------------------------------------
 
-    fn apply_profile(&mut self, profile: Profile) -> Result<SessionSnapshot, SessionError> {
+    fn apply_profile(&mut self, mut profile: Profile) -> Result<SessionSnapshot, SessionError> {
         if !matches!(
             self.conn.state(),
             ConnectionState::Idle | ConnectionState::Disconnected
@@ -2540,6 +2645,9 @@ impl Actor {
         }
         if profile.polls.len() > MAX_POLLS {
             return Err(invalid("polls", "A connection can have at most 16 polls."));
+        }
+        if profile.schema_version != PROFILE_SCHEMA_VERSION {
+            return Err(invalid("schemaVersion", "Unsupported profile schema."));
         }
         // Validate everything before changing anything.
         let mut names: Vec<&str> = Vec::new();
@@ -2554,7 +2662,11 @@ impl Actor {
                 Some(&pp.aliases),
             )
             .map_err(prefix)?;
+            validate_color_rules(&pp.color_rules, pp.display.format).map_err(prefix)?;
             names.push(&pp.name);
+        }
+        for poll in &mut profile.polls {
+            shared_types::normalize_color_rules(&mut poll.color_rules);
         }
         // Old views close without S6; native windows are closed by the window layer.
         let old: Vec<PollId> = self.polls.iter().map(|p| p.id).collect();
@@ -2585,6 +2697,7 @@ impl Actor {
                 definition: pp.definition,
                 active: pp.active,
                 display: pp.display,
+                color_rules: pp.color_rules,
                 scale: pp.scale,
                 scale_overrides: pp.scale_overrides,
                 value_columns: pp.value_columns,
@@ -2602,6 +2715,7 @@ impl Actor {
                 open: pp.view.open,
                 workspace: pp.view.workspace.filter(WorkspaceRect::is_valid),
                 native: pp.view.native.filter(WindowPlacement::is_valid),
+                native_generation: 0,
                 handoff: None,
                 view: None,
             });
@@ -2679,6 +2793,7 @@ impl Actor {
                     definition: p.definition.clone(),
                     active: p.active,
                     display: p.display.clone(),
+                    color_rules: p.color_rules.clone(),
                     scale: p.scale.clone(),
                     scale_overrides: p.scale_overrides.clone(),
                     value_columns: p.value_columns,

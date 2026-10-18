@@ -34,6 +34,7 @@ pub(crate) struct PollEntry {
     pub definition: PollDefinition,
     pub active: bool,
     pub display: DisplaySettings,
+    pub color_rules: Vec<shared_types::ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     pub scale_overrides: Vec<ScaleOverride>,
     pub value_columns: ValueColumns,
@@ -56,6 +57,8 @@ pub(crate) struct PollEntry {
     pub open: bool,
     pub workspace: Option<WorkspaceRect>,
     pub native: Option<WindowPlacement>,
+    /// Identity of the native host incarnation; old destruction cannot close a replacement.
+    pub native_generation: u64,
     pub handoff: Option<(String, Instant)>,
     pub view: Option<ViewRoute>,
 }
@@ -68,6 +71,7 @@ impl PollEntry {
             definition: self.definition.clone(),
             active: self.active,
             display: self.display.clone(),
+            color_rules: self.color_rules.clone(),
             scale: self.scale.clone(),
             scale_overrides: self.scale_overrides.clone(),
             value_columns: self.value_columns,

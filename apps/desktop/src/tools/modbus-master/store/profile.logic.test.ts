@@ -1,4 +1,4 @@
-import type { ConnectionConfig, PollConfig } from "@/shared/ipc/modbus-master.types";
+﻿import type { ConnectionConfig, PollConfig } from "@/shared/ipc/modbus-master.types";
 import {
   contentSignature,
   disconnectAndLoadBody,
@@ -15,7 +15,15 @@ function config(id: number, patch: Partial<PollConfig> = {}): PollConfig {
     name: `Poll ${id}`,
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
     active: true,
-    display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+    display: {
+      format: "unsigned",
+      addressBase: 0,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
+    colorRules: [],
     scale: null,
     scaleOverrides: [],
     valueColumns: "raw",
@@ -49,25 +57,53 @@ describe("contentSignature (DES-002 6.1: what marks a profile modified)", () => 
     [
       "the display format",
       config(1, {
-        display: { format: "hex", addressBase: 0, showAlias: true, copyAlias: false },
+        display: {
+          format: "hex",
+          addressBase: 0,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       }),
     ],
     [
       "the address base",
       config(1, {
-        display: { format: "unsigned", addressBase: 1, showAlias: true, copyAlias: false },
+        display: {
+          format: "unsigned",
+          addressBase: 1,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       }),
     ],
     [
       "the Alias column",
       config(1, {
-        display: { format: "unsigned", addressBase: 0, showAlias: false, copyAlias: false },
+        display: {
+          format: "unsigned",
+          addressBase: 0,
+          showAlias: false,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       }),
     ],
     [
       "Include alias in copy",
       config(1, {
-        display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: true },
+        display: {
+          format: "unsigned",
+          addressBase: 0,
+          showAlias: true,
+          copyAlias: true,
+          swapBytes: false,
+          reverseWords: false,
+        },
       }),
     ],
     ["an alias", config(1, { aliases: [{ address: 0, alias: "PT-201" }] })],
@@ -105,7 +141,7 @@ describe("contentSignature (DES-002 6.1: what marks a profile modified)", () => 
 describe("texts", () => {
   it("the migration notice is the DES-002 6.2 text", () => {
     expect(MIGRATION_NOTICE).toBe(
-      'This profile was saved by an earlier version. Its poll is now "Poll 1". Saving stores it in the new format, which earlier versions cannot open.',
+      "This profile was saved by an earlier version. Saving stores it in the new format, which earlier versions cannot open.",
     );
   });
 

@@ -3,16 +3,16 @@
 /**
  * Details of a bad response, for precise banner and traffic texts.
  */
-export type BadResponseDetail = { 
+export type BadResponseDetail = {
 /**
  * crc: computed CRC; wrongSlave: requested slave; wrongFunction: requested FC;
  * transactionMismatch: sent id; shortFrame: needed length. Null for malformed.
  */
-expected: number | null, 
+expected: number | null,
 /**
  * The value found in the reply (CRC, slave, FC, transaction id, or received length).
  */
-got: number | null, 
+got: number | null,
 /**
  * English description, for example `reply from slave 5, expected 1`.
  */

@@ -1,4 +1,4 @@
-// The Write dialog's poll context and request building (FE-002 task 22): the poll the dialog
+﻿// The Write dialog's poll context and request building (FE-002 task 22): the poll the dialog
 // belongs to, FC05/15/16 requests, binary lists, the queue semantics of one dialog, and the
 // alias line and scaled preview texts (DES-002 3.3, DES-003 3.5).
 import {
@@ -46,7 +46,15 @@ function config(): PollConfig {
     name: "Tank 1",
     definition: poll,
     active: true,
-    display: { format, addressBase: base, showAlias: true, copyAlias: false },
+    display: {
+      format,
+      addressBase: base,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
+    colorRules: [],
     scale: null,
     scaleOverrides: [],
     valueColumns: "raw",
@@ -314,7 +322,14 @@ describe("scaled preview seam (DES-003 3.5)", () => {
         scale,
         scaleOverrides,
         definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
-        display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+        display: {
+          format: "unsigned",
+          addressBase: 0,
+          showAlias: true,
+          copyAlias: false,
+          swapBytes: false,
+          reverseWords: false,
+        },
       });
     const divide = (divisor: number, decimals: number, unit: string): ScaleSettings => ({
       ...presetDefaults("divide"),

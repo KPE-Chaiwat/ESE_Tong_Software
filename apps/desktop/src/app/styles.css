@@ -171,3 +171,32 @@
     }
   }
 }
+
+/* Value rules use approved foreground/background pairs; their marker survives forced colors. */
+[data-workspace] .grid-stack > .grid-stack-item > .grid-stack-item-content {
+  overflow: hidden;
+}
+
+.value-rule {
+  color: var(--ese-dark);
+}
+.value-rule-lime {
+  background: var(--ese-accent);
+}
+.value-rule-neutral {
+  background: var(--ese-light);
+}
+.value-rule-warning {
+  background: var(--ese-warning);
+}
+.value-rule-custom {
+  background: var(--rule-bg);
+  color: var(--rule-fg);
+}
+@media (forced-colors: active) {
+  .value-rule {
+    color: CanvasText;
+    background: Canvas;
+    outline: 1px solid CanvasText;
+  }
+}

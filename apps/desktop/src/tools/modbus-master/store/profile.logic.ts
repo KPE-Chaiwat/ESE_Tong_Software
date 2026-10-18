@@ -4,7 +4,7 @@ import type { ConnectionConfig, PollConfig } from "@/shared/ipc/modbus-master.ty
 import { transportSummary } from "./connection.logic";
 
 export const MIGRATION_NOTICE =
-  'This profile was saved by an earlier version. Its poll is now "Poll 1". Saving stores it in the new format, which earlier versions cannot open.';
+  "This profile was saved by an earlier version. Saving stores it in the new format, which earlier versions cannot open.";
 export const FIX_FIELDS_TOAST = "Fix the highlighted fields before saving.";
 export const UNREADABLE_PROFILE = "Cannot be opened (newer or damaged file)";
 
@@ -30,6 +30,7 @@ export function contentSignature(c: ProfileContent): string {
         name: p.name,
         definition: p.definition,
         display: p.display,
+        colorRules: p.colorRules,
         scale: p.scale,
         scaleOverrides: p.scaleOverrides,
         valueColumns: p.valueColumns,

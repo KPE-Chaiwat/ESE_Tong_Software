@@ -48,7 +48,7 @@ impl From<SessionError> for AppError {
         let err = Self::new(code, e.to_string());
         match &e {
             // REV-001 N8: tell the UI which input to focus.
-            SessionError::Validation(v) => err.with_field(v.field),
+            SessionError::Validation(v) => err.with_field(v.field.clone()),
             _ => err,
         }
     }

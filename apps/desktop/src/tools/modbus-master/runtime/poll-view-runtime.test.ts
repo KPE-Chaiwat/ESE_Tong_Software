@@ -1,4 +1,4 @@
-import { IpcError } from "@/shared/ipc/errors";
+﻿import { IpcError } from "@/shared/ipc/errors";
 import {
   createFakeModbusMasterIpc,
   type FakeModbusMasterIpc,
@@ -686,7 +686,14 @@ describe("copy", () => {
       aliases: [{ address: 0, alias: "PT-201" }],
       scale: presetDefaults("current4to20"),
       valueColumns: "both",
-      display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: true },
+      display: {
+        format: "unsigned",
+        addressBase: 0,
+        showAlias: true,
+        copyAlias: true,
+        swapBytes: false,
+        reverseWords: false,
+      },
     });
     const rt = await started(a, "workspace", { createScaled: scaled, ...extra });
     ipc.emitConnectionState("connected");

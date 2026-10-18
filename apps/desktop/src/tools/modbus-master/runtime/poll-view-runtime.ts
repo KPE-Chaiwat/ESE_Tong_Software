@@ -24,6 +24,8 @@ import type {
 } from "@/shared/ipc/modbus-master.types";
 import type { ToastStoreApi } from "@/shared/lib/toast.store";
 import { addressesOf } from "../lib/address-ranges";
+import { combinedRows, isCombinedFormat } from "../lib/combined";
+import { combinedCopyText } from "../lib/combined-copy";
 import {
   CLIPBOARD_ERROR,
   type CopyOptions,
@@ -32,6 +34,7 @@ import {
   copyAliasesText,
   copyRowsText,
 } from "../lib/copy";
+import { VALUE_FORMAT_LABELS } from "../lib/format";
 import { isBitFunction } from "../lib/functions";
 import {
   createScaledFactory,
@@ -91,6 +94,7 @@ export type PollViewDetachCause = DetachReason | "removed" | "attachFailed";
 export interface PollViewRuntimeDeps {
   ipc: Pick<
     ModbusMasterIpc,
+    | "ackPollBulkReady"
     | "attachPollView"
     | "detachPollView"
     | "updatePoll"
@@ -121,6 +125,7 @@ export interface PollViewRuntimeDeps {
    * are off and pop out and dock refuse. Returns the release function.
    */
   lockModal?: () => () => void;
+  canPrepareBulk?: () => boolean;
   /** The view must go away: detached by Rust, poll deleted, or the attach was rejected. */
   onDetached?: (cause: PollViewDetachCause) => void;
   onPrefsChanged?: (evt: PrefsChangedEvent) => void;
@@ -139,6 +144,8 @@ export interface ApplySetupResult {
 }
 
 export interface CopyChoice {
+  /** Explicit logical rows, used by raw inspection without changing grid selection. */
+  addresses?: readonly number[];
   /** Overrides the poll's value columns ("Copy raw", "Copy scaled", "Copy raw and scaled"). */
   columns?: ValueColumns;
   header?: boolean;
@@ -209,11 +216,61 @@ export interface PollViewRuntime {
 export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntime {
   const { pollId, connection, toasts } = deps;
   const createScaled = deps.createScaled ?? createScaledFactory();
-  const hostActions = deps.hostActions ?? {};
+  const hostActions: PollHostActions = {};
+  for (const [name, action] of Object.entries(deps.hostActions ?? {})) {
+    Object.assign(hostActions, {
+      [name]: (...args: unknown[]) => {
+        if (!ui.getState().bulkOperationToken) (action as (...args: unknown[]) => void)(...args);
+      },
+    });
+  }
+  let localModalCount = 0;
+  let bulkUnlock: (() => void) | null = null;
+  const lockLocalModal = () => {
+    localModalCount += 1;
+    const unlock = deps.lockModal?.();
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      localModalCount -= 1;
+      unlock?.();
+    };
+  };
   const subscriptions: Array<() => void> = [];
 
   const onEvent = (event: PollViewEvent): void => {
     switch (event.type) {
+      case "BulkOperationPrepare": {
+        const token = poll.getState().viewToken;
+        const ready =
+          token !== null &&
+          poll.getState().pending === null &&
+          localModalCount === 0 &&
+          !overrides.getState().open &&
+          !ui.getState().bulkOperationToken &&
+          (deps.canPrepareBulk?.() ?? true);
+        if (ready) {
+          ui.setState({ bulkOperationToken: event.operationToken });
+          if (deps.host === "native") bulkUnlock = deps.lockModal?.() ?? null;
+        }
+        if (token !== null)
+          void deps.ipc.ackPollBulkReady(event.operationToken, pollId, token, ready).catch(() => {
+            if (ui.getState().bulkOperationToken === event.operationToken) {
+              ui.setState({ bulkOperationToken: null });
+              bulkUnlock?.();
+              bulkUnlock = null;
+            }
+          });
+        break;
+      }
+      case "BulkOperationRelease":
+        if (ui.getState().bulkOperationToken === event.operationToken) {
+          ui.setState({ bulkOperationToken: null });
+          bulkUnlock?.();
+          bulkUnlock = null;
+        }
+        break;
       case "PollUpdate":
         data.getState().applyUpdate(event);
         break;
@@ -300,10 +357,21 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     // setup drafts -> hasUnappliedEdits
     subscriptions.push(
       ui.subscribe((s, prev) => {
-        if (s.pollDraft === prev.pollDraft && s.scaleDraft === prev.scaleDraft) return;
+        if (
+          s.pollDraft === prev.pollDraft &&
+          s.scaleDraft === prev.scaleDraft &&
+          s.interpretationDraft === prev.interpretationDraft &&
+          s.ruleDraft === prev.ruleDraft
+        )
+          return;
         void poll
           .getState()
-          .reportUnappliedEdits(draftHasEdits(s.pollDraft) || s.scaleDraft?.dirty === true);
+          .reportUnappliedEdits(
+            draftHasEdits(s.pollDraft) ||
+              s.scaleDraft?.dirty === true ||
+              s.ruleDraft?.dirty === true ||
+              s.interpretationDraft !== null,
+          );
       }),
     );
   }
@@ -337,16 +405,26 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     // A view that arrives without its handoff (a reload, a handoff older than 10 s) has no drafts,
     // but Rust may still say there are unapplied edits: the flag follows what this view holds
     // (REV-005 m-2).
-    const { pollDraft, scaleDraft } = ui.getState();
+    const { pollDraft, scaleDraft, interpretationDraft, ruleDraft } = ui.getState();
     void poll
       .getState()
-      .reportUnappliedEdits(draftHasEdits(pollDraft) || scaleDraft?.dirty === true);
+      .reportUnappliedEdits(
+        draftHasEdits(pollDraft) ||
+          scaleDraft?.dirty === true ||
+          ruleDraft?.dirty === true ||
+          interpretationDraft !== null,
+      );
     deps.onSnapshot?.(snapshot);
   }
 
   // The host learns when the view must go away.
   subscriptions.push(
     poll.subscribe((s, prev) => {
+      if ((s.attach === "detached" && prev.attach !== "detached") || (s.removed && !prev.removed)) {
+        bulkUnlock?.();
+        bulkUnlock = null;
+        ui.setState({ bulkOperationToken: null });
+      }
       if (s.attach === "detached" && prev.attach !== "detached") {
         deps.onDetached?.(s.detachReason ?? (s.attachError !== null ? "attachFailed" : "closed"));
       }
@@ -461,9 +539,30 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
 
     async copyRows(choice = {}) {
       const config = getConfig();
-      const addresses = selectedAddresses();
+      const addresses = choice.addresses ?? selectedAddresses();
       if (!config || addresses.length === 0) return;
       const bits = config.definition.function === 1 || config.definition.function === 2;
+      if (!bits && isCombinedFormat(config.display.format)) {
+        if (choice.columns === "scaled" || choice.columns === "both") return;
+        const rows = combinedRows(
+          config.definition.startAddress,
+          config.definition.quantity,
+          data.getState().values,
+          config.display.format,
+          config.display,
+        ).filter((row) => addresses.includes(row.address));
+        await writeClipboard(
+          combinedCopyText(rows, alias.getState().aliases, {
+            base: config.display.addressBase,
+            includeAlias: config.display.copyAlias,
+            header: choice.header ?? false,
+            label: VALUE_FORMAT_LABELS[config.display.format],
+            rawRegisters: choice.columns === "raw",
+          }),
+          copiedToast(rows.length),
+        );
+        return;
+      }
       const opts: CopyOptions = {
         format: config.display.format,
         base: config.display.addressBase,
@@ -527,7 +626,12 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     },
     openOverrideForSelection() {
       const config = getConfig();
-      if (!config || isBitFunction(config.definition.function)) return false;
+      if (
+        !config ||
+        isBitFunction(config.definition.function) ||
+        isCombinedFormat(config.display.format)
+      )
+        return false;
       return overrides.getState().openForSelection(ui.getState().selection);
     },
     async removeOverridesAtSelection() {
@@ -575,13 +679,16 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     actions,
     hostActions,
     scaled: scaledProvider,
-    lockModal: () => deps.lockModal?.() ?? (() => {}),
+    lockModal: lockLocalModal,
     draftContext,
     init() {
       started ??= poll.getState().init();
       return started;
     },
     dispose() {
+      bulkUnlock?.();
+      bulkUnlock = null;
+      ui.setState({ bulkOperationToken: null });
       for (const off of subscriptions.splice(0)) off();
       poll.getState().dispose();
     },

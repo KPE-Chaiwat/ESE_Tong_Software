@@ -38,6 +38,8 @@ const display = (patch: Partial<DisplaySettings> = {}): DisplaySettings => ({
   addressBase: 0,
   showAlias: true,
   copyAlias: false,
+  swapBytes: false,
+  reverseWords: false,
   ...patch,
 });
 

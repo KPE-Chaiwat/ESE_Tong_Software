@@ -3,7 +3,7 @@
 /**
  * Payload of `SaveRequested` (`mm_request_save` from a native poll window).
  */
-export type SaveRequest = { 
+export type SaveRequest = {
 /**
  * `Ctrl+Shift+S`.
  */

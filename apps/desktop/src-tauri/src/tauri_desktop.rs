@@ -145,14 +145,34 @@ impl<R: Runtime> Desktop for TauriDesktop<'_, R> {
         title: &str,
         min_inner: (f64, f64),
     ) -> Result<(), String> {
-        WebviewWindowBuilder::new(self.app, label, WebviewUrl::App(route.into()))
+        let (connection, poll_id) = crate::windows::parse_poll_window_label(label)
+            .ok_or_else(|| "Invalid native poll window label.".to_owned())?;
+        let session = self
+            .app
+            .state::<crate::state::AppState>()
+            .session(connection)
+            .map_err(|e| e.to_string())?;
+        let generation = session
+            .native_generation(poll_id)
+            .ok_or_else(|| "This poll no longer exists.".to_owned())?;
+        let window = WebviewWindowBuilder::new(self.app, label, WebviewUrl::App(route.into()))
             .title(title)
             .inner_size(POLL_WINDOW.width, POLL_WINDOW.height)
             .min_inner_size(min_inner.0, min_inner.1)
             .visible(false)
             .build()
-            .map(drop)
-            .map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?;
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let session = session.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = session
+                        .native_incarnation_destroyed(poll_id, generation)
+                        .await;
+                });
+            }
+        });
+        Ok(())
     }
 
     fn set_min_inner_size(&self, label: &str, min_inner: (f64, f64)) -> Result<(), String> {
@@ -183,6 +203,29 @@ impl<R: Runtime> Desktop for TauriDesktop<'_, R> {
     fn show(&self, label: &str) {
         if let Some(w) = self.app.get_webview_window(label) {
             let _ = w.show();
+        }
+    }
+
+    fn reveal_checked(&self, label: &str) -> Result<(), String> {
+        let w = self
+            .app
+            .get_webview_window(label)
+            .ok_or_else(|| "The poll window no longer exists.".to_owned())?;
+        if w.is_minimized().map_err(|e| e.to_string())? {
+            w.unminimize().map_err(|e| e.to_string())?;
+        }
+        w.show().map_err(|e| e.to_string())?;
+        w.set_focus().map_err(|e| e.to_string())
+    }
+
+    fn destroy_checked(&self, label: &str) -> Result<(), String> {
+        if let Some(w) = self.app.get_webview_window(label) {
+            w.destroy().map_err(|e| e.to_string())?;
+        }
+        if self.exists(label) {
+            Err("The poll window is still closing. Retry window cleanup.".into())
+        } else {
+            Ok(())
         }
     }
 

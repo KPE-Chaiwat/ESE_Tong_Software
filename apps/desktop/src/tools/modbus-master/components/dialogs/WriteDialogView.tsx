@@ -14,6 +14,7 @@ import { Input, Label, Select, Textarea } from "@/shared/ui/input";
 import { SegmentedControl } from "@/shared/ui/segmented";
 import { toDisplayAddress, toProtocolAddress } from "../../lib/address";
 import { aliasMap } from "../../lib/alias";
+import { isCombinedFormat } from "../../lib/combined";
 import { VALUE_FORMAT_LABELS, VALUE_FORMATS } from "../../lib/format";
 import { WRITE_FUNCTION_LABELS, WRITE_FUNCTIONS } from "../../lib/functions";
 import { splitValues } from "../../lib/parse";
@@ -327,9 +328,18 @@ export function WriteDialogView({
           </div>
         ) : null}
 
+        {config && isCombinedFormat(config.display.format) ? (
+          <p className="text-xs text-text-muted">
+            Writes send individual 16-bit registers. Combined values are not encoded.
+          </p>
+        ) : null}
         {fn === 6 ? (
           <div>
-            <Label htmlFor={id("value")}>Value</Label>
+            <Label htmlFor={id("value")}>
+              {config && isCombinedFormat(config.display.format)
+                ? "Raw register value (16-bit)"
+                : "Value"}
+            </Label>
             <div className="mt-1">
               <Input
                 id={id("value")}

@@ -1,4 +1,4 @@
-// A scriptable fake of the multi-poll Modbus Master IPC facade (DES-002 section 8). It is the only
+﻿// A scriptable fake of the multi-poll Modbus Master IPC facade (DES-002 section 8). It is the only
 // backend that unit tests, Testing Library tests and (with VITE_FAKE_IPC) the dev server and
 // Playwright talk to.
 //
@@ -47,6 +47,9 @@ import type {
   ConnectionStatus,
   Counters,
   MonitorInfo,
+  PollBulkAction,
+  PollBulkPlan,
+  PollBulkResult,
   PollConfig,
   PollConfigInput,
   PollCounters,
@@ -169,7 +172,15 @@ export function pollConfigInput(patch: Partial<PollConfigInput> = {}): PollConfi
   return {
     name: "Poll 1",
     definition: defaultDefinition(),
-    display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+    display: {
+      format: "unsigned",
+      addressBase: 0,
+      showAlias: true,
+      copyAlias: false,
+      swapBytes: false,
+      reverseWords: false,
+    },
+    colorRules: [],
     scale: null,
     scaleOverrides: [],
     valueColumns: "raw",
@@ -512,7 +523,31 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     profileName,
   });
 
+  let bulkRevision = 0;
+  let bulkSignature = "";
+  let bulkPlan: { plan: PollBulkPlan; revision: number } | null = null;
+  const bulkResults = new Map<string, PollBulkResult>();
+  const bulkAcks = new Map<
+    string,
+    Map<PollId, { token: ViewToken; resolve: (ready: boolean) => void }>
+  >();
+  let bulkRunning = false;
+  const bulkIdentity = () =>
+    JSON.stringify(
+      order.map((id) => {
+        const r = rec(id);
+        return [r.config, r.host, r.open, r.hasUnappliedEdits, r.view?.token ?? null];
+      }),
+    );
+  const refreshBulkRevision = () => {
+    const signature = bulkIdentity();
+    if (signature !== bulkSignature) {
+      bulkSignature = signature;
+      bulkRevision += 1;
+    }
+  };
   const emitPollList = (): void => {
+    refreshBulkRevision();
     toSession({ type: "PollListChanged", polls: order.map((id) => summaryOf(rec(id))) });
   };
   const emitConfig = (r: PollRecord): void => {
@@ -1058,7 +1093,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     view.onEvent({ type: "ViewDetached", pollId: r.config.pollId, reason });
   };
 
-  const removeRecord = (r: PollRecord): void => {
+  const removeRecord = (r: PollRecord, publish = true): void => {
     const id = r.config.pollId;
     toView(r, { type: "PollRemoved", pollId: id });
     r.view = null;
@@ -1067,7 +1102,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     faults.delete(id);
     handoffWaiters.get(id)?.(null);
     handoffWaiters.delete(id);
-    emitPollList();
+    if (publish) emitPollList();
   };
 
   const defaultNative = (): WindowPlacement => ({
@@ -1321,6 +1356,10 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
       profiles.clear();
       polls.clear();
       order = [];
+      bulkPlan = null;
+      bulkResults.clear();
+      bulkAcks.clear();
+      bulkRunning = false;
       nextPollId = 1;
       nextToken = 1;
       sessionHandler = null;
@@ -1407,6 +1446,48 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
         if (active() && connection.state === "connected") startOrPause(r, true);
         emitPollList();
         return r.config.pollId;
+      }),
+    preparePollBulk: (action, pollIds) =>
+      run("preparePollBulk", [action, pollIds], async () => {
+        if (bulkRunning) throw new IpcError("A bulk operation is running.", "invalidState");
+        if (!pollIds.length || new Set(pollIds).size !== pollIds.length)
+          throw new IpcError("Select each poll once.", "validation", "pollIds");
+        for (const id of pollIds) rec(id);
+        const targets = order.filter((id) => pollIds.includes(id)).map((id) => summaryOf(rec(id)));
+        const available = MAX_POLLS - order.length;
+        if (action === "duplicate" && targets.length > available)
+          throw new IpcError(
+            `Cannot duplicate ${targets.length} polls. This connection has room for ${available} more (maximum 16).`,
+            "validation",
+            "polls",
+          );
+        refreshBulkRevision();
+        const plan = {
+          planToken: `bulk-${nextToken++}`,
+          action,
+          targets: structuredClone(targets),
+          available,
+        };
+        bulkPlan = { plan, revision: bulkRevision };
+        return plan;
+      }),
+    duplicatePolls: (planToken) =>
+      run("duplicatePolls", [planToken], () => executeBulk(planToken, "duplicate")),
+    removePolls: (planToken) =>
+      run("removePolls", [planToken], () => executeBulk(planToken, "delete")),
+    ackPollBulkReady: (operationToken, pollId, viewToken, ready) =>
+      run("ackPollBulkReady", [operationToken, pollId, viewToken, ready], async () => {
+        const ack = bulkAcks.get(operationToken)?.get(pollId);
+        if (ack?.token === viewToken && polls.get(pollId)?.view?.token === viewToken)
+          ack.resolve(ready);
+      }),
+    recoverPollBulkWindows: (operationToken) =>
+      run("recoverPollBulkWindows", [operationToken], async () => {
+        const result = bulkResults.get(operationToken);
+        if (!result) throw new IpcError("Unknown bulk operation.", "invalidState");
+        const recovered = { ...result, polls: order.map((id) => summaryOf(rec(id))), issues: [] };
+        bulkResults.set(operationToken, recovered);
+        return recovered;
       }),
     duplicatePoll: (pollId) =>
       run("duplicatePoll", [pollId], async () => {
@@ -1510,6 +1591,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
           scaleOverrides: view.scaleOverrides,
           aliases: view.aliases,
         });
+        if (view.colorRules !== undefined) r.config.colorRules = structuredClone(view.colorRules);
         if (view.display !== undefined) r.config.display = { ...view.display };
         if (view.scale !== undefined) {
           r.config.scale = view.scale === null ? null : { ...view.scale };
@@ -1802,6 +1884,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
               name: p.name,
               definition: p.definition,
               display: p.display,
+              colorRules: p.colorRules,
               scale: p.scale,
               scaleOverrides: p.scaleOverrides,
               valueColumns: p.valueColumns,
@@ -1842,7 +1925,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
           throw new IpcError("There is no connection to save.", "validation", "connection");
         }
         return {
-          schemaVersion: 2,
+          schemaVersion: 5,
           name: name ?? profileName ?? "",
           connection: conn,
           autoStartPoll,
@@ -1866,6 +1949,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
               definition: { ...r.config.definition },
               active: r.config.active,
               display: { ...r.config.display },
+              colorRules: structuredClone(r.config.colorRules),
               scale: r.config.scale ? { ...r.config.scale } : null,
               scaleOverrides: structuredClone(r.config.scaleOverrides),
               valueColumns: r.config.valueColumns,
@@ -1929,6 +2013,122 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
       }),
   };
 
+  async function executeBulk(planToken: string, action: PollBulkAction): Promise<PollBulkResult> {
+    const recorded = bulkResults.get(planToken);
+    if (recorded) {
+      if (recorded.action !== action) throw new IpcError("Wrong bulk action.", "invalidState");
+      return structuredClone(recorded);
+    }
+    if (
+      bulkRunning ||
+      !bulkPlan ||
+      bulkPlan.plan.planToken !== planToken ||
+      bulkPlan.plan.action !== action
+    )
+      throw new IpcError("Prepare the operation again.", "invalidState", "planToken");
+    const { plan, revision } = bulkPlan;
+    bulkPlan = null;
+    refreshBulkRevision();
+    const stale = () =>
+      new IpcError(
+        "The selected polls changed. Review your selection and try again.",
+        "validation",
+        "pollIds",
+      );
+    if (revision !== bulkRevision) throw stale();
+    if (action === "duplicate" && order.length + plan.targets.length > MAX_POLLS)
+      throw new IpcError(
+        `Cannot duplicate ${plan.targets.length} polls. This connection has room for ${MAX_POLLS - order.length} more (maximum 16).`,
+        "validation",
+        "polls",
+      );
+    bulkRunning = true;
+    const targets = plan.targets.map((target) => rec(target.config.pollId));
+    const acks = new Map<PollId, { token: ViewToken; resolve: (ready: boolean) => void }>();
+    bulkAcks.set(planToken, acks);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      if (targets.some((r) => r.open && r.host === "native" && !r.view))
+        throw new IpcError(
+          "Close dialogs in the selected poll windows and try again.",
+          "validation",
+          "lifecycle",
+        );
+      const waits = targets
+        .filter((r) => r.view)
+        .map(
+          (r) =>
+            new Promise<boolean>((resolve) => {
+              acks.set(r.config.pollId, { token: r.view?.token ?? -1, resolve });
+            }),
+        );
+      for (const r of targets)
+        toView(r, { type: "BulkOperationPrepare", operationToken: planToken, action });
+      const ready = await Promise.race([
+        Promise.all(waits).then((values) => values.every(Boolean)),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => resolve(false), 1000);
+        }),
+      ]);
+      if (!ready)
+        throw new IpcError(
+          "Close dialogs in the selected poll windows and try again.",
+          "validation",
+          "lifecycle",
+        );
+      refreshBulkRevision();
+      if (revision !== bulkRevision) throw stale();
+      const created: PollBulkResult["created"] = [];
+      const removedIds: PollId[] = [];
+      if (action === "duplicate") {
+        const insertion = Math.max(...targets.map((r) => order.indexOf(r.config.pollId))) + 1;
+        const names = order.map((id) => rec(id).config.name);
+        for (const source of targets) {
+          const name = nextCopyName(source.config.name, names);
+          names.push(name);
+          const copy = newRecord(
+            { ...structuredClone(source.config), name },
+            source.open ? source.host : "workspace",
+          );
+          if (copy.host === "native") {
+            const placement = source.native ?? defaultNative();
+            copy.native = { ...placement, x: placement.x + 24, y: placement.y + 24 };
+          }
+          created.push({ sourceId: source.config.pollId, pollId: copy.config.pollId });
+          if (active() && connection.state === "connected") startOrPause(copy, true);
+        }
+        order.splice(insertion, 0, ...created.map((copy) => copy.pollId));
+      } else {
+        for (const r of targets) {
+          removedIds.push(r.config.pollId);
+          removeRecord(r, false);
+        }
+      }
+      emitPollList();
+      const result: PollBulkResult = {
+        operationToken: planToken,
+        action,
+        definitionsCommitted: true,
+        created,
+        removedIds,
+        polls: order.map((id) => summaryOf(rec(id))),
+        issues: [],
+      };
+      bulkResults.set(planToken, result);
+      if (bulkResults.size > 16) {
+        const oldest = bulkResults.keys().next().value;
+        if (oldest !== undefined) bulkResults.delete(oldest);
+      }
+      return structuredClone(result);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      for (const r of targets)
+        toView(r, { type: "BulkOperationRelease", operationToken: planToken });
+      bulkAcks.delete(planToken);
+      bulkRunning = false;
+    }
+  }
+
   async function run<T>(method: CommandName, args: unknown[], impl: () => Promise<T>): Promise<T> {
     calls.push({ method, args });
     const held = holds.get(method);
@@ -1956,6 +2156,30 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     args: unknown[],
     impl: () => Promise<T>,
   ): Promise<T> {
+    if (
+      bulkRunning &&
+      (
+        [
+          "addPoll",
+          "duplicatePoll",
+          "removePoll",
+          "updatePoll",
+          "renamePoll",
+          "reorderPolls",
+          "setPollActive",
+          "setAllPollsActive",
+          "setPollView",
+          "applyProfile",
+          "showPoll",
+          "popOutPoll",
+          "dockPoll",
+          "closePollView",
+          "attachPollView",
+        ] as CommandName[]
+      ).includes(method)
+    ) {
+      throw new IpcError("A bulk operation is running.", "invalidState");
+    }
     const failure = failures.get(method);
     if (failure && failure.remaining > 0) {
       failure.remaining -= 1;

@@ -6,16 +6,16 @@ import type { SessionReason } from "./SessionReason";
 /**
  * Connection state plus its details. Payload of `ConnectionStateChanged` (both channels).
  */
-export type ConnectionStatus = { state: ConnectionState, 
+export type ConnectionStatus = { state: ConnectionState,
 /**
  * Set in `disconnected`.
  */
-reason: SessionReason | null, 
+reason: SessionReason | null,
 /**
  * The configuration of the current or last connection (from `mm_connect` or
  * `mm_apply_profile`), for texts like "Connecting to {target}".
  */
-config: ConnectionConfig | null, 
+config: ConnectionConfig | null,
 /**
  * When the state was entered.
  */

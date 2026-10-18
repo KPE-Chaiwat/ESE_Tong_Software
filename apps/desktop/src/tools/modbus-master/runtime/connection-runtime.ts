@@ -1,3 +1,4 @@
+import { createPollBulkStore, type PollBulkStoreApi } from "../store/poll-bulk.store";
 // The runtime of the connection window W1 (DES-002 2.1, FE-002 ground rules): every store of the
 // window, the wiring between them, the session channel, and one poll view runtime per workspace
 // sub-window. Each Tauri window is its own JS context, so there is exactly one of these per window.
@@ -76,6 +77,10 @@ import {
   selectNativeCount,
   unappliedNames,
 } from "../store/poll-list.store";
+import {
+  createPollSelectionStore,
+  type PollSelectionStoreApi,
+} from "../store/poll-selection.store";
 import { createPrefsStore, type PrefsStoreApi } from "../store/prefs.store";
 import { contentSignature, sameConfigs } from "../store/profile.logic";
 import { createProfileInfoStore, type ProfileInfoStoreApi } from "../store/profile-info.store";
@@ -105,6 +110,8 @@ export interface ConnectionStores {
   draft: ConnectionDraftStoreApi;
   section: ConnectionSectionStoreApi;
   pollList: PollListStoreApi;
+  pollSelection: PollSelectionStoreApi;
+  pollBulk: PollBulkStoreApi;
   traffic: TrafficStoreApi;
   workspace: WorkspaceStoreApi;
   drag: DragStoreApi;
@@ -275,7 +282,31 @@ export function createConnectionRuntime(
   const dialogs = createDialogsStore();
   const confirm = createConfirmStore();
   const prefs = createPrefsStore({ ipc, toasts });
-  const pollList = createPollListStore({ ipc, toasts, warn });
+  const pollList = createPollListStore({
+    ipc,
+    toasts,
+    warn,
+    canChangeDefinitions: () => pollBulk.getState().phase === "idle",
+  });
+  const pollSelection = createPollSelectionStore();
+  const pollBulk = createPollBulkStore({
+    ipc,
+    list: pollList,
+    selection: pollSelection,
+    layout,
+    announcer,
+    focus(target) {
+      requestAnimationFrame(() => {
+        const selector =
+          typeof target === "number"
+            ? `[data-region="polls"] [data-poll-id="${target}"] input[type=checkbox]`
+            : target === "new"
+              ? '[title="New poll (Ctrl+Shift+N)"]'
+              : `[data-bulk-action="${target}"]`;
+        document.querySelector<HTMLElement>(selector)?.focus();
+      });
+    },
+  });
   const traffic = createTrafficStore({ ipc });
   const listOrder = () => pollList.getState().order;
   const workspace = createWorkspaceStore({
@@ -379,6 +410,11 @@ export function createConnectionRuntime(
         clipboard,
         ...(options.createScaled ? { createScaled: options.createScaled } : {}),
         lockModal: () => layout.getState().lockModal(),
+        canPrepareBulk: () =>
+          layout.getState().modalCount <= (pollBulk.getState().phase !== "idle" ? 1 : 0) &&
+          !host.getState().pending[pollId] &&
+          host.getState().closing === null &&
+          host.getState().deleting === null,
         warn,
         getOtherNames: () => pollNames(pollList.getState()).filter((n) => n !== nameOf(pollId)),
         hostActions: {
@@ -436,6 +472,12 @@ export function createConnectionRuntime(
   let holding = true;
   let held: SessionEvent[] = [];
   const disposers: Array<() => void> = [];
+  disposers.push(pollBulk.subscribe((s) => pollSelection.getState().setFrozen(s.phase !== "idle")));
+  disposers.push(
+    pollList.subscribe((s, prev) => {
+      if (s.order !== prev.order) pollSelection.getState().reconcile(s.order);
+    }),
+  );
 
   const route = (event: SessionEvent): void => {
     switch (event.type) {
@@ -596,6 +638,8 @@ export function createConnectionRuntime(
       };
     },
     applySnapshot(snapshot) {
+      pollBulk.getState().resetForProfile();
+      pollSelection.getState().resetForProfile();
       snapshotApplied = false;
       applySnapshot(snapshot);
       seedDerived();
@@ -647,8 +691,10 @@ export function createConnectionRuntime(
     const target =
       frame?.querySelector<HTMLElement>('[role="grid"]') ??
       frame?.querySelector<HTMLElement>('[data-slot="title-bar"]') ??
-      doc.querySelector<HTMLElement>('[data-region="polls"] [role="option"][tabindex="0"]') ??
-      doc.querySelector<HTMLElement>('[data-region="polls"] [role="option"]') ??
+      doc.querySelector<HTMLElement>(
+        '[data-region="polls"] [data-poll-show][aria-current="true"]',
+      ) ??
+      doc.querySelector<HTMLElement>('[data-region="polls"] [data-poll-show]') ??
       doc.querySelector<HTMLElement>('[data-region="workspace"]');
     target?.focus();
   };
@@ -1062,6 +1108,8 @@ export function createConnectionRuntime(
       draft,
       section,
       pollList,
+      pollSelection,
+      pollBulk,
       traffic,
       workspace,
       drag,
@@ -1109,6 +1157,7 @@ export function createConnectionRuntime(
       return started;
     },
     dispose() {
+      pollBulk.getState().dispose();
       disposed = true;
       stopClosing?.();
       stopClosing = null;

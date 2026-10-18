@@ -6,27 +6,27 @@ import type { TrafficOrigin } from "./TrafficOrigin";
 /**
  * One frame exactly as it was written to or read from the wire.
  */
-export type TrafficFrame = { 
+export type TrafficFrame = {
 /**
  * Per-session sequence number, strictly increasing; gaps mean frames were dropped.
  */
-seq: number, at: number, direction: TrafficDirection, 
+seq: number, at: number, direction: TrafficDirection,
 /**
  * Raw ADU bytes (MBAP header or slave id + CRC included).
  */
-bytes: Array<number>, slaveId: number | null, 
+bytes: Array<number>, slaveId: number | null,
 /**
  * Function code without the exception bit.
  */
-function: number | null, 
+function: number | null,
 /**
  * Set on RX exception replies.
  */
-exceptionCode: ExceptionCode | null, 
+exceptionCode: ExceptionCode | null,
 /**
  * Set on frames that need explanation: bad responses, discarded bytes, incomplete frames.
  */
-note: string | null, 
+note: string | null,
 /**
  * The request this frame belongs to. Null for bytes that belong to no current request
  * (late replies, bytes discarded before a request or received while idle).

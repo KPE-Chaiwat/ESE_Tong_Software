@@ -1,10 +1,12 @@
+import { useLayoutEffect } from "react";
 import type { PollId } from "@/shared/ipc/modbus-master.types";
 import { Icon } from "@/shared/ui/icon";
+import { SIDEBAR_ID, SIDEBAR_TOGGLE_ID } from "../../lib/sidebar";
 import { compactChip } from "../../lib/status-line";
 import { pollPillFor } from "../../store/poll.logic";
 import { selectPollConfig, selectPollHasData, selectPollStatus } from "../../store/poll-list.store";
 import { SIDEBAR_WIDTH_RANGE } from "../../store/workspace.logic";
-import { useActions, useLayout, usePollList, usePrefs, useRuntime, useWorkspace } from "../context";
+import { useActions, usePollList, useRuntime, useSidebarExpanded, useWorkspace } from "../context";
 import { ResizeSeparator } from "../shell/ResizeSeparator";
 import { ConnectionSection } from "./ConnectionSection";
 import { PollList } from "./PollList";
@@ -39,6 +41,15 @@ function RailIcon({ pollId }: { pollId: PollId }) {
 function Rail() {
   const actions = useActions();
   const order = usePollList((s) => s.order);
+  useLayoutEffect(
+    () => () => {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.closest('[data-slot="sidebar-rail"]')) {
+        document.getElementById(SIDEBAR_TOGGLE_ID)?.focus();
+      }
+    },
+    [],
+  );
   return (
     <nav
       aria-label="Polls (rail)"
@@ -48,9 +59,14 @@ function Rail() {
     >
       <button
         type="button"
-        aria-label="Show sidebar (Ctrl+\)"
+        aria-label="Show sidebar"
+        aria-expanded={false}
+        aria-controls={SIDEBAR_ID}
         title="Show sidebar (Ctrl+\)"
-        onClick={() => actions.toggleSidebar()}
+        onClick={() => {
+          document.getElementById(SIDEBAR_TOGGLE_ID)?.focus();
+          actions.toggleSidebar();
+        }}
         className="inline-flex size-7 items-center justify-center rounded-md outline-none hover:bg-neutral-tint focus-ring"
       >
         <Icon name="chevron-right" />
@@ -68,19 +84,24 @@ function Rail() {
  */
 export function Sidebar() {
   const runtime = useRuntime();
-  const compact = usePrefs((s) => s.compact);
-  const collapsed = useWorkspace((s) => s.sidebar.collapsed);
+  const expanded = useSidebarExpanded();
   const width = useWorkspace((s) => s.sidebar.width);
-  const peek = useLayout((s) => s.sidebarPeek);
   const workspace = runtime.stores.workspace;
 
-  const rail = compact ? !peek : collapsed;
+  const rail = !expanded;
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (rail && active instanceof HTMLElement && active.closest(`#${SIDEBAR_ID}`)) {
+      document.getElementById(SIDEBAR_TOGGLE_ID)?.focus();
+    }
+  }, [rail]);
 
   return (
     <>
       {rail ? <Rail /> : null}
       {/* Hidden, not unmounted, as a rail: the connection form keeps what was typed. */}
       <aside
+        id={SIDEBAR_ID}
         hidden={rail}
         aria-label="Sidebar"
         data-region="sidebar"

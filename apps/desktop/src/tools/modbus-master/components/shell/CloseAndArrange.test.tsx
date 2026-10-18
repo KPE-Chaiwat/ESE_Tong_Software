@@ -250,13 +250,13 @@ describe("Window > Popped-out windows (DES-002 2.8.5)", () => {
     expect(h.rt.stores.workspace.getState().tileMode).toBe(false);
   });
 
-  it("the Tile of the Window menu itself still tiles the workspace", async () => {
+  it("the Window menu resets the grid without arranging native windows", async () => {
     h = await renderWindow();
     await h.addPoll("A");
     await h.addPoll("N1", {}, "native");
     await h.user.click(screen.getByRole("button", { name: "Window" }));
-    await h.user.click(screen.getByRole("menuitem", { name: /^Tile/ }));
-    expect(h.rt.stores.workspace.getState().tileMode).toBe(true);
+    await h.user.click(screen.getByRole("menuitem", { name: /^Reset grid layout/ }));
+    expect(h.rt.stores.workspace.getState().tileMode).toBe(false);
     expect(h.ipc.callsOf("arrangePollWindows")).toHaveLength(0);
   });
 

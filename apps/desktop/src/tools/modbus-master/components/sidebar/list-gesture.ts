@@ -49,7 +49,7 @@ export function startListGesture({
   const target = event.target;
   // Events of a menu rendered through a portal bubble here too.
   if (!(target instanceof Element) || !el.contains(target)) return;
-  if (target.closest("button, input, textarea, [role=menu]")) return;
+  if (target.closest("button:not([data-poll-show]), input, textarea, [role=menu]")) return;
   const { drag } = runtime.stores;
 
   const pointerId = event.pointerId;

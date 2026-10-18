@@ -76,6 +76,7 @@ function DetachedNotice() {
  */
 export function NativePollWindow() {
   const runtime = useNativeRuntime();
+  const bulkLocked = useStore(runtime.view.stores.ui, (s) => s.bulkOperationToken !== null);
   useNativeShortcuts();
   useAltGuard();
   useRegionCycle(NATIVE_REGION_ORDER);
@@ -85,6 +86,8 @@ export function NativePollWindow() {
   return (
     <div
       data-native-window=""
+      inert={bulkLocked}
+      aria-busy={bulkLocked}
       data-ready={ready ? "true" : "false"}
       data-prefs={prefs}
       data-poll-id={runtime.pollId}

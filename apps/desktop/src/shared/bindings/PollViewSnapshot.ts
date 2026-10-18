@@ -8,16 +8,16 @@ import type { ViewToken } from "./ViewToken";
 /**
  * Result of `mm_attach_poll_view`.
  */
-export type PollViewSnapshot = { 
+export type PollViewSnapshot = {
 /**
  * Pass to `mm_detach_poll_view`.
  */
-viewToken: ViewToken, host: PollHostKind, connection: ConnectionStatus, poll: PollSummary, 
+viewToken: ViewToken, host: PollHostKind, connection: ConnectionStatus, poll: PollSummary,
 /**
  * Last values of the current definition (also stale ones), so a moved view shows
  * values at once.
  */
-lastUpdate: PollUpdate | null, 
+lastUpdate: PollUpdate | null,
 /**
  * The opaque handoff stored by pop out / dock, delivered once and at most 10 s old.
  */
