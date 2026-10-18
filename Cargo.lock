@@ -656,6 +656,7 @@ dependencies = [
 name = "dev-sim-slave"
 version = "0.1.0"
 dependencies = [
+ "esefact-desktop",
  "modbus-core",
  "modbus-master",
  "serde_json",
@@ -855,7 +856,9 @@ dependencies = [
  "tauri-plugin-fs",
  "tauri-plugin-store",
  "tauri-plugin-window-state",
+ "tokio",
  "transport",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2427,6 +2430,7 @@ dependencies = [
  "dirs",
  "serde",
  "serde_json",
+ "shared-types",
  "tempfile",
  "thiserror 2.0.21",
 ]

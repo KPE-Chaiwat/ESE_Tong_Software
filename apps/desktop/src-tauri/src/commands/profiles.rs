@@ -1,6 +1,8 @@
-//! Profile commands. Storage rules live in `platform::ProfileStore` (BE-001 Q-10).
+//! Profile commands. Storage rules live in `platform::ProfileStore` (BE-001 Q-10), the
+//! Modbus Master schema (v2, migration from v1, checks) in `platform::mm_profile`.
 //! File I/O runs on the blocking pool so it never stalls the async workers.
 
+use platform::mm_profile::{check_profile, decode_profile, encode_profile, MODBUS_MASTER_TOOL_ID};
 use platform::ProfileStore;
 use shared_types::{AppErrorCode, Profile, ProfileSummary};
 use tauri::State;
@@ -12,7 +14,7 @@ use crate::windows::find_tool;
 /// Only Modbus Master has profiles so far; its documents are `shared_types::Profile`.
 fn store_for(state: &AppState, tool_id: &str) -> AppResult<ProfileStore> {
     match find_tool(tool_id) {
-        Some(t) if t.id == "modbus-master" => state.profiles(),
+        Some(t) if t.id == MODBUS_MASTER_TOOL_ID => state.profiles(),
         _ => Err(AppError::new(
             AppErrorCode::UnknownTool,
             format!("Unknown tool \"{tool_id}\"."),
@@ -28,6 +30,8 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| AppError::new(AppErrorCode::Internal, e.to_string()))?
 }
 
+/// Unreadable files (newer schema, damaged, more than 16 polls, invalid aliases or
+/// `minimizedOrder`) are listed with `readable: false` and the problem as summary.
 #[tauri::command]
 pub async fn profiles_list(
     state: State<'_, AppState>,
@@ -36,14 +40,11 @@ pub async fn profiles_list(
     let store = store_for(&state, &tool_id)?;
     blocking(move || {
         Ok(store
-            .list::<Profile>(&tool_id)?
+            .list_with(&tool_id, decode_profile)?
             .into_iter()
             .map(|e| {
                 let (connection_summary, readable) = match &e.document {
-                    Ok(p) => match p.check_shape() {
-                        Ok(()) => (p.connection.summary(), true),
-                        Err(problem) => (problem, false),
-                    },
+                    Ok(p) => (p.connection.summary(), true),
                     Err(err) => (err.to_string(), false),
                 };
                 ProfileSummary {
@@ -58,6 +59,7 @@ pub async fn profiles_list(
     .await
 }
 
+/// Schema 1 files come back migrated (`migratedFrom: 1`); the file is not changed.
 #[tauri::command]
 pub async fn profiles_get(
     state: State<'_, AppState>,
@@ -65,21 +67,11 @@ pub async fn profiles_get(
     name: String,
 ) -> AppResult<Profile> {
     let store = store_for(&state, &tool_id)?;
-    blocking(move || {
-        let profile = store.get::<Profile>(&tool_id, &name)?;
-        profile.check_shape().map_err(|problem| {
-            AppError::new(
-                AppErrorCode::InvalidProfile,
-                format!("Profile \"{}\" cannot be read: {problem}", profile.name),
-            )
-        })?;
-        Ok(profile)
-    })
-    .await
+    blocking(move || Ok(store.get_with(&tool_id, &name, decode_profile)?)).await
 }
 
-/// Saves under `profile.name`. `overwrite = false` fails with `profileExists` when a profile
-/// with that name (ignoring case) exists; the UI then asks "Replace profile?".
+/// Saves under `profile.name` as schema 2 (`migratedFrom` is not written). `overwrite =
+/// false` fails with `profileExists` when a profile with that name (ignoring case) exists.
 #[tauri::command]
 pub async fn profiles_save(
     state: State<'_, AppState>,
@@ -88,14 +80,15 @@ pub async fn profiles_save(
     overwrite: bool,
 ) -> AppResult<()> {
     let store = store_for(&state, &tool_id)?;
-    // Permissive on purpose (PM decision on REV-001 Q4): only what the UI cannot recover
-    // from is refused. Connection and poll values are validated when used.
-    profile
-        .check_shape()
-        .map_err(|problem| AppError::new(AppErrorCode::Validation, problem))?;
+    // Permissive for the connection (a half-edited form can be saved); the poll list, names,
+    // aliases and minimizedOrder must be valid.
+    check_profile(&profile)
+        .map_err(|p| AppError::new(AppErrorCode::Validation, p.message).with_field(p.field))?;
+    let document =
+        encode_profile(&profile).map_err(|e| AppError::new(AppErrorCode::Internal, e))?;
     blocking(move || {
         let name = profile.name.clone();
-        Ok(store.save(&tool_id, &name, &profile, overwrite)?)
+        Ok(store.save(&tool_id, &name, &document, overwrite)?)
     })
     .await
 }

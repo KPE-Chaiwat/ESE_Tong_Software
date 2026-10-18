@@ -1,6 +1,6 @@
 [package]
 name = "platform"
-description = "Settings, profiles, logging and paths. Independent of the Modbus crates."
+description = "Settings, profiles, logging, paths and pure window layout math. Independent of the Modbus protocol crates; uses shared-types DTOs."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -15,6 +15,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 dirs.workspace = true
+shared-types.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

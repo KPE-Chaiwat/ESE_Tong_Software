@@ -12,8 +12,9 @@ use transport::{SerialPortLister, SystemPortLister};
 use crate::error::{AppError, AppResult};
 
 pub struct AppState {
-    /// One Modbus Master session per window, keyed by window label. Created by
-    /// `mm_open_session`, removed (and shut down) when the window is destroyed.
+    /// One Modbus Master session per connection window, keyed by its label. Created by
+    /// `mm_open_session`, removed (and shut down) when that window is destroyed. Poll
+    /// windows (`<label>-poll-<id>`) use the session of their connection window.
     sessions: Mutex<HashMap<String, Arc<Session>>>,
     profiles: Result<ProfileStore, String>,
     pub port_lister: Arc<dyn SerialPortLister>,
@@ -21,6 +22,12 @@ pub struct AppState {
     pub window_counter: AtomicU32,
     /// Port names from the last `mm_list_serial_ports` (accepted by `mm_connect`).
     known_ports: Mutex<Vec<String>>,
+    /// Native poll windows whose minimum waits for the resize after a DPI change (REV-008
+    /// M-1, see `desktop::ScaleChangeTracker`).
+    pub scale_changes: crate::desktop::ScaleChangeTracker,
+    /// DEV/QA ONLY (`dev-hooks` feature): one armed pop out / dock failure.
+    #[cfg(feature = "dev-hooks")]
+    pub dev_fail: crate::dev_hooks::DevFailHook,
 }
 
 impl Default for AppState {
@@ -33,6 +40,9 @@ impl Default for AppState {
             port_lister: Arc::new(SystemPortLister),
             window_counter: AtomicU32::new(0),
             known_ports: Mutex::new(Vec::new()),
+            scale_changes: crate::desktop::ScaleChangeTracker::default(),
+            #[cfg(feature = "dev-hooks")]
+            dev_fail: crate::dev_hooks::DevFailHook::default(),
         }
     }
 }
@@ -42,8 +52,9 @@ impl AppState {
         self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// The session of a window, or `noSession`.
+    /// The session of a connection window or of one of its poll windows, or `noSession`.
     pub fn session(&self, label: &str) -> AppResult<Arc<Session>> {
+        let label = crate::windows::connection_label(label);
         self.lock().get(label).cloned().ok_or_else(|| {
             AppError::new(
                 AppErrorCode::NoSession,
@@ -67,11 +78,14 @@ impl AppState {
         (s, true)
     }
 
-    /// Removes and stops the session of a window (window destroyed). Closes its link.
-    pub fn remove_session(&self, label: &str) {
-        if let Some(s) = self.lock().remove(label) {
+    /// Removes and stops the session of a connection window (window destroyed). Closes its
+    /// link. Returns whether there was one.
+    pub fn remove_session(&self, label: &str) -> bool {
+        let removed = self.lock().remove(label);
+        if let Some(s) = &removed {
             s.close();
         }
+        removed.is_some()
     }
 
     pub fn remember_ports(&self, names: Vec<String>) {

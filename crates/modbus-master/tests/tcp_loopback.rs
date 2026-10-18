@@ -1,6 +1,6 @@
-//! BE-001 acceptance: a real TCP loopback fake slave exercising connect, poll 03 with 125
-//! registers, write 06/16, timeout, exception, a bad reply and a socket drop, asserting the
-//! emitted state sequence. Real time (no paused clock), short timeouts.
+//! BE-001 acceptance on the BE-002 session: a real TCP loopback fake slave exercising
+//! connect, poll 03 with 125 registers, write 06/16, timeout, exception, a bad reply and a
+//! socket drop, asserting the emitted state sequences. Real time, short timeouts.
 //!
 //! Modbus TCP has no CRC, so the CRC-bad case runs RTU framing over the same kind of real
 //! loopback socket (an "RTU over TCP" link) with a custom connector.
@@ -14,8 +14,8 @@ use async_trait::async_trait;
 use common::*;
 use modbus_master::{Connector, Session, SessionDeps, SystemClock, SystemConnector};
 use shared_types::{
-    BadResponseKind, ConnectionConfig, ExceptionCode, ReasonKind, SessionState as S, WriteRequest,
-    WriteResult,
+    BadResponseKind, ConnectionConfig, ConnectionState as C, ExceptionCode, PollDefinition,
+    PollHostKind, PollId, PollState as S, ReasonKind, WriteRequest, WriteResult,
 };
 use tokio::net::{TcpListener, TcpStream};
 use transport::fake::{Behavior, FakeSlave};
@@ -29,62 +29,84 @@ async fn start_fake() -> (FakeSlave, u16) {
     (slave, port)
 }
 
-async fn wait(rec: &Recorder, what: &str, pred: impl Fn(&Recorder) -> bool) {
-    wait_for(rec, Duration::from_secs(10), what, pred).await;
+async fn wait(what: &str, pred: impl Fn() -> bool) {
+    wait_until(Duration::from_secs(10), what, pred).await;
 }
 
-async fn wait_last(rec: &Recorder, state: S) {
-    wait(rec, &format!("{state:?}"), |r| {
-        r.last_state().is_some_and(|s| s.state == state)
+async fn wait_conn(rec: &SessionRec, state: C) {
+    wait(&format!("{state:?}"), || {
+        rec.last_connection() == Some(state)
     })
     .await;
+}
+
+/// Adds a running poll with an attached view.
+async fn start(session: &Session, def: PollDefinition) -> (PollId, Arc<ViewRec>) {
+    let id = session
+        .add_poll(input("Poll 1", def), PollHostKind::Workspace)
+        .await
+        .unwrap();
+    session.set_poll_active(id, true).await.unwrap();
+    let view = Arc::new(ViewRec::default());
+    session
+        .attach_view(id, PollHostKind::Workspace, view.clone())
+        .await
+        .unwrap();
+    (id, view)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn tcp_full_scenario() {
     let (slave, port) = start_fake().await;
-    let rec = Arc::new(Recorder::default());
+    let rec = Arc::new(SessionRec::default());
     let session = Session::spawn(
         rec.clone(),
         SessionDeps {
             clock: Arc::new(SystemClock),
             connector: Arc::new(SystemConnector),
+            ..SessionDeps::default()
         },
     );
 
     session.connect(tcp_config(port, 150)).await.unwrap();
-    wait_last(&rec, S::Connected).await;
+    wait_conn(&rec, C::Connected).await;
 
-    session.start_poll(poll03(125, 50)).await.unwrap();
-    wait(&rec, "2 updates", |r| r.updates().len() >= 2).await;
-    let u = rec.updates()[0].clone();
+    let (id, view) = start(&session, poll03(125, 50)).await;
+    wait("2 updates", || view.updates().len() >= 2).await;
+    let u = view.updates()[0].clone();
     assert_eq!(u.values.len(), 125);
     assert_eq!(u.values[124], 124);
 
     let w06 = session
-        .write(WriteRequest {
-            slave_id: 1,
-            function: 6,
-            address: 10,
-            values: vec![4321],
-        })
+        .write(
+            WriteRequest {
+                slave_id: 1,
+                function: 6,
+                address: 10,
+                values: vec![4321],
+            },
+            Some(id),
+        )
         .await
         .unwrap();
     assert_eq!(w06, WriteResult::Ok);
     let w16 = session
-        .write(WriteRequest {
-            slave_id: 1,
-            function: 16,
-            address: 20,
-            values: vec![1, 2, 3],
-        })
+        .write(
+            WriteRequest {
+                slave_id: 1,
+                function: 16,
+                address: 20,
+                values: vec![1, 2, 3],
+            },
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(w16, WriteResult::Ok);
     assert_eq!(slave.holding_register(10), 4321);
     assert_eq!(slave.holding_register(22), 3);
-    wait(&rec, "written value polled", |r| {
-        r.updates().last().is_some_and(|u| u.values[10] == 4321)
+    wait("written value polled", || {
+        view.updates().last().is_some_and(|u| u.values[10] == 4321)
     })
     .await;
 
@@ -97,13 +119,15 @@ async fn tcp_full_scenario() {
         Behavior::Respond,
         Behavior::Close,
     ]);
-    wait_last(&rec, S::Disconnected).await;
+    wait_conn(&rec, C::Disconnected).await;
 
     assert_eq!(
-        rec.states(),
+        rec.connection_states(),
+        [C::Connecting, C::Connected, C::Disconnected]
+    );
+    assert_eq!(
+        rec.poll_states(id),
         [
-            S::Connecting,
-            S::Connected,
             S::Polling,
             S::Timeout,
             S::Polling,
@@ -111,17 +135,17 @@ async fn tcp_full_scenario() {
             S::Polling,
             S::BadResponse,
             S::Polling,
-            S::Disconnected,
+            S::Offline,
         ]
     );
-    let changes = rec.state_changes();
-    assert_eq!(changes[5].exception_code, Some(ExceptionCode(2)));
+    let changes = rec.poll_statuses(id);
+    assert_eq!(changes[3].exception_code, Some(ExceptionCode(2)));
     assert_eq!(
-        changes[7].bad_response_kind,
+        changes[5].bad_response_kind,
         Some(BadResponseKind::WrongSlave)
     );
     assert_eq!(
-        changes[9].reason.as_ref().unwrap().kind,
+        rec.connection()[2].reason.as_ref().unwrap().kind,
         ReasonKind::ClosedByPeer
     );
 
@@ -129,8 +153,8 @@ async fn tcp_full_scenario() {
     let tx = rec.frames()[0].bytes.clone();
     assert_eq!(tx, [0, 1, 0, 0, 0, 6, 1, 3, 0, 0, 0, 125]);
     let snap = session.snapshot().await.unwrap();
-    assert_eq!(snap.counters.timeouts, 1);
-    assert!(snap.counters.errors >= 2);
+    assert_eq!(snap.counters.total.timeouts, 1);
+    assert!(snap.counters.total.errors >= 2);
     session.shutdown().await;
 }
 
@@ -139,12 +163,12 @@ async fn tcp_connect_refused() {
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     drop(listener);
-    let rec = Arc::new(Recorder::default());
+    let rec = Arc::new(SessionRec::default());
     let session = Session::spawn(rec.clone(), SessionDeps::default());
     session.connect(tcp_config(port, 5000)).await.unwrap();
-    wait_last(&rec, S::Disconnected).await;
+    wait_conn(&rec, C::Disconnected).await;
     assert_eq!(
-        rec.last_state().unwrap().reason.unwrap().kind,
+        rec.connection().pop().unwrap().reason.unwrap().kind,
         ReasonKind::Refused
     );
 }
@@ -181,36 +205,36 @@ async fn rtu_over_tcp_crc_bad_reply() {
         fake.serve(stream, Framing::rtu_for_baud(19200)).await;
     });
 
-    let rec = Arc::new(Recorder::default());
+    let rec = Arc::new(SessionRec::default());
     let session = Session::spawn(
         rec.clone(),
         SessionDeps {
             clock: Arc::new(SystemClock),
             connector: Arc::new(RtuOverTcp(port)),
+            ..SessionDeps::default()
         },
     );
     session.connect(rtu_config(200)).await.unwrap();
-    wait_last(&rec, S::Connected).await;
+    wait_conn(&rec, C::Connected).await;
     slave.script([Behavior::BadCrc, Behavior::Respond]);
-    session.start_poll(poll03(125, 50)).await.unwrap();
-    wait(&rec, "recovery", |r| {
-        r.states().iter().filter(|s| **s == S::Polling).count() >= 2
+    let (id, _view) = start(&session, poll03(125, 50)).await;
+    wait("recovery", || {
+        rec.poll_states(id)
+            .iter()
+            .filter(|s| **s == S::Polling)
+            .count()
+            >= 2
     })
     .await;
-    let changes = rec.state_changes();
+    let changes = rec.poll_statuses(id);
     assert_eq!(
-        rec.states(),
-        [
-            S::Connecting,
-            S::Connected,
-            S::Polling,
-            S::BadResponse,
-            S::Polling
-        ]
+        rec.poll_states(id),
+        [S::Polling, S::BadResponse, S::Polling]
     );
-    assert_eq!(changes[3].bad_response_kind, Some(BadResponseKind::Crc));
+    assert_eq!(changes[1].bad_response_kind, Some(BadResponseKind::Crc));
+    wait("first frame", || !rec.frames().is_empty()).await;
     let first_tx = rec.frames()[0].bytes.clone();
     assert_eq!(first_tx, [0x01, 0x03, 0x00, 0x00, 0x00, 0x7D, 0x85, 0xEB]);
     session.disconnect().await.unwrap();
-    assert_eq!(rec.last_state().unwrap().state, S::Idle);
+    assert_eq!(rec.last_connection(), Some(C::Idle));
 }

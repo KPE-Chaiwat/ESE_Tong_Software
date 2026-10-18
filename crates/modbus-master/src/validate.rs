@@ -5,7 +5,12 @@
 use modbus_core::{
     Request, MAX_READ_BITS, MAX_READ_REGISTERS, MAX_SLAVE_ID, MAX_WRITE_COILS, MAX_WRITE_REGISTERS,
 };
-use shared_types::{ConnectionConfig, PollDefinition, WriteRequest};
+use shared_types::{
+    check_aliases, check_display, check_poll_name, check_scale, check_scale_overrides,
+    duplicate_poll_name_message, same_poll_name, AliasEntry, ConnectionConfig, DisplaySettings,
+    PollDefinition, PopOutAnchor, ScaleOverride, ScaleSettings, WorkspaceLayout, WorkspaceRect,
+    WriteRequest, SIDEBAR_WIDTH_RANGE,
+};
 
 /// Allowed baud rates (DES-001 section 1, RTU setup fields).
 pub const BAUD_RATES: [u32; 8] = [1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];
@@ -269,6 +274,125 @@ pub fn validate_write(write: &WriteRequest) -> Result<Request, ValidationError> 
     }
 }
 
+/// Largest opaque handoff accepted from a poll view (BE-002: relayed unchanged).
+pub const MAX_HANDOFF_BYTES: usize = 256 * 1024;
+
+/// Validates a poll name: DES-002 section 4 rules plus uniqueness (ignoring case) among
+/// `others` (the names of the other polls of the connection).
+///
+/// # Errors
+/// `field: "name"` with the DES message.
+pub fn validate_poll_name<'a>(
+    name: &str,
+    others: impl IntoIterator<Item = &'a str>,
+) -> Result<(), ValidationError> {
+    check_poll_name(name).map_err(|m| invalid("name", m))?;
+    if others.into_iter().any(|o| same_poll_name(o, name)) {
+        return Err(invalid("name", duplicate_poll_name_message(name)));
+    }
+    Ok(())
+}
+
+/// Shape and size checks of a poll's view settings (Rust never interprets a scale).
+///
+/// # Errors
+/// `field` is `display`, `scale`, `scaleOverrides` or `aliases`.
+pub fn validate_view_parts(
+    display: Option<&DisplaySettings>,
+    scale: Option<&ScaleSettings>,
+    overrides: Option<&[ScaleOverride]>,
+    aliases: Option<&[AliasEntry]>,
+) -> Result<(), ValidationError> {
+    if let Some(d) = display {
+        check_display(d).map_err(|m| invalid("display", m))?;
+    }
+    if let Some(s) = scale {
+        check_scale(s).map_err(|m| invalid("scale", m))?;
+    }
+    if let Some(o) = overrides {
+        check_scale_overrides(o).map_err(|m| invalid("scaleOverrides", m))?;
+    }
+    if let Some(a) = aliases {
+        check_aliases(a).map_err(|m| invalid("aliases", m))?;
+    }
+    Ok(())
+}
+
+/// # Errors
+/// `field` as given when a number is not finite or a size is negative.
+pub fn validate_workspace_rect(
+    rect: &WorkspaceRect,
+    field: &'static str,
+) -> Result<(), ValidationError> {
+    if rect.is_valid() {
+        Ok(())
+    } else {
+        Err(invalid(
+            field,
+            "Workspace rectangles need finite numbers up to 1000000 and a size of 0 or more.",
+        ))
+    }
+}
+
+/// Checks a pop-out anchor from W1 (`mm_pop_out_poll`, REV-004 m4).
+///
+/// # Errors
+/// `field: "anchor"` when a number is not finite, beyond +-1000000 logical px, or a size
+/// is negative.
+pub fn validate_anchor(anchor: &PopOutAnchor) -> Result<(), ValidationError> {
+    let ok = match anchor {
+        PopOutAnchor::Rect { rect } => rect.is_valid(),
+        PopOutAnchor::Cursor { grab_offset } => grab_offset.is_valid(),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(invalid(
+            "anchor",
+            "The pop-out position needs finite numbers up to 1000000 and a size of 0 or more.",
+        ))
+    }
+}
+
+/// Checks a workspace layout from W1 (`mm_set_workspace_layout`).
+///
+/// # Errors
+/// `field` is `items`, `sidebarWidth` or `trafficHeight`.
+pub fn validate_layout(layout: &WorkspaceLayout) -> Result<(), ValidationError> {
+    for item in &layout.items {
+        validate_workspace_rect(&item.rect, "items")?;
+    }
+    let (lo, hi) = SIDEBAR_WIDTH_RANGE;
+    if !(lo..=hi).contains(&layout.sidebar_width) {
+        return Err(invalid(
+            "sidebarWidth",
+            "Sidebar width must be from 220 to 400 px.",
+        ));
+    }
+    if layout
+        .traffic_height
+        .is_some_and(|h| !h.is_finite() || h < 0.0)
+    {
+        return Err(invalid(
+            "trafficHeight",
+            "Traffic height must be a number of 0 or more.",
+        ));
+    }
+    Ok(())
+}
+
+/// # Errors
+/// `field: "handoff"` when larger than [`MAX_HANDOFF_BYTES`].
+pub fn validate_handoff(handoff: Option<&str>) -> Result<(), ValidationError> {
+    if handoff.is_some_and(|h| h.len() > MAX_HANDOFF_BYTES) {
+        return Err(invalid(
+            "handoff",
+            "The poll view state is too large to move (more than 256 KiB).",
+        ));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -402,6 +526,107 @@ mod tests {
             address,
             values,
         }
+    }
+
+    #[test]
+    fn poll_name_and_view_rules() {
+        assert!(validate_poll_name("Pump 2", ["Pump 1", "Tank"]).is_ok());
+        let e = validate_poll_name("pump 1", ["Pump 1"]).unwrap_err();
+        assert_eq!(e.field, "name");
+        assert_eq!(
+            e.message,
+            "A poll named \"pump 1\" already exists on this connection."
+        );
+        assert_eq!(
+            validate_poll_name("", []).unwrap_err().message,
+            "Enter a poll name."
+        );
+        let alias = |address, alias: &str| AliasEntry {
+            address,
+            alias: alias.into(),
+        };
+        let e = validate_view_parts(None, None, None, Some(&[alias(1, "a"), alias(1, "b")]))
+            .unwrap_err();
+        assert_eq!(e.field, "aliases");
+        let d = DisplaySettings {
+            address_base: 2,
+            ..DisplaySettings::default()
+        };
+        assert_eq!(
+            validate_view_parts(Some(&d), None, None, None)
+                .unwrap_err()
+                .field,
+            "display"
+        );
+        assert!(validate_handoff(Some(&"x".repeat(MAX_HANDOFF_BYTES))).is_ok());
+        assert_eq!(
+            validate_handoff(Some(&"x".repeat(MAX_HANDOFF_BYTES + 1)))
+                .unwrap_err()
+                .field,
+            "handoff"
+        );
+        let mut layout = WorkspaceLayout::default();
+        assert!(validate_layout(&layout).is_ok());
+        layout.sidebar_width = 500.0;
+        assert_eq!(validate_layout(&layout).unwrap_err().field, "sidebarWidth");
+        layout.sidebar_width = 280.0;
+        layout.traffic_height = Some(f64::NAN);
+        assert_eq!(validate_layout(&layout).unwrap_err().field, "trafficHeight");
+    }
+
+    /// REV-004 m4: extreme geometry is rejected at the boundary, never computed with.
+    #[test]
+    fn anchors_and_rects_are_range_checked() {
+        use shared_types::{LogicalPoint, LogicalRect, SubWindowState};
+        let rect = |x: f64, w: f64| PopOutAnchor::Rect {
+            rect: LogicalRect::new(x, 10.0, w, 300.0),
+        };
+        assert!(validate_anchor(&rect(-500.0, 640.0)).is_ok());
+        assert!(validate_anchor(&rect(1_000_000.0, 0.0)).is_ok());
+        for bad in [
+            rect(1e300, 640.0),
+            rect(-1e300, 640.0),
+            rect(1_000_000.5, 640.0),
+            rect(10.0, -1.0),
+            rect(10.0, 1e7),
+            rect(f64::NAN, 640.0),
+            rect(f64::INFINITY, 640.0),
+            PopOutAnchor::Cursor {
+                grab_offset: LogicalPoint { x: 1e300, y: 0.0 },
+            },
+            PopOutAnchor::Cursor {
+                grab_offset: LogicalPoint {
+                    x: 0.0,
+                    y: f64::NEG_INFINITY,
+                },
+            },
+        ] {
+            assert_eq!(
+                validate_anchor(&bad).unwrap_err().field,
+                "anchor",
+                "{bad:?}"
+            );
+        }
+        assert!(validate_anchor(&PopOutAnchor::Cursor {
+            grab_offset: LogicalPoint { x: -20.0, y: 10.0 }
+        })
+        .is_ok());
+        let ws = |x: f64| WorkspaceRect {
+            x,
+            y: 0.0,
+            width: 640.0,
+            height: 368.0,
+            z: 1,
+            state: SubWindowState::Normal,
+            restore: None,
+        };
+        assert!(validate_workspace_rect(&ws(-100.0), "items").is_ok());
+        assert_eq!(
+            validate_workspace_rect(&ws(-1e300), "items")
+                .unwrap_err()
+                .field,
+            "items"
+        );
     }
 
     #[test]

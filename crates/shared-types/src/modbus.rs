@@ -1,7 +1,9 @@
-//! Modbus Master DTOs (DES-001 section 9, BE-001).
+//! Modbus Master protocol-level DTOs (DES-001 section 9, BE-001; extended by BE-002).
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
+
+use crate::session::PollId;
 
 /// Connection settings. `mode` is the discriminant.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -96,22 +98,6 @@ pub struct PollDefinition {
     pub quantity: u16,
     /// 20-60000 ms between cycle starts (BE-001 Q-05).
     pub scan_rate_ms: u32,
-}
-
-/// The 9 session states of DES-001 section 2.1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase")]
-pub enum SessionState {
-    Idle,
-    Connecting,
-    Connected,
-    Polling,
-    Paused,
-    Timeout,
-    Exception,
-    BadResponse,
-    Disconnected,
 }
 
 /// Why the session is `disconnected` (DES-001 section 3.4).
@@ -220,6 +206,22 @@ pub struct TrafficFrame {
     pub exception_code: Option<ExceptionCode>,
     /// Set on frames that need explanation: bad responses, discarded bytes, incomplete frames.
     pub note: Option<String>,
+    /// The request this frame belongs to. Null for bytes that belong to no current request
+    /// (late replies, bytes discarded before a request or received while idle).
+    pub origin: Option<TrafficOrigin>,
+}
+
+/// What caused a traffic frame. `kind` is the discriminant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum TrafficOrigin {
+    /// A poll request or its reply.
+    #[serde(rename_all = "camelCase")]
+    Poll { poll_id: PollId },
+    /// A write or its reply; `pollId` is the poll window it was sent from, if any.
+    #[serde(rename_all = "camelCase")]
+    Write { poll_id: Option<PollId> },
 }
 
 /// A write. `values` holds one entry for FC05/06; coils are 0 or 1.
@@ -281,32 +283,13 @@ pub struct Counters {
     pub timeouts: u64,
 }
 
-/// Session state change. Never dropped or coalesced.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase")]
-pub struct StateChanged {
-    pub state: SessionState,
-    /// Set in `disconnected`.
-    pub reason: Option<SessionReason>,
-    /// Failed cycles in a row in timeout / exception / badResponse (DES T7-T9), else 0.
-    pub consecutive_failures: u32,
-    /// Set in `exception`.
-    pub exception_code: Option<ExceptionCode>,
-    /// Set in `badResponse`.
-    pub bad_response_kind: Option<BadResponseKind>,
-    /// Set in `badResponse`.
-    pub bad_response_detail: Option<BadResponseDetail>,
-    #[ts(type = "number")]
-    pub at: u64,
-}
-
 /// Values of one successful poll cycle.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub struct PollUpdate {
-    /// Cycle sequence number, strictly increasing per session. Gaps mean coalesced updates.
+    pub poll_id: PollId,
+    /// Cycle sequence number, strictly increasing per poll. Gaps mean coalesced updates.
     #[ts(type = "number")]
     pub seq: u64,
     #[ts(type = "number")]
@@ -326,36 +309,6 @@ pub struct PollUpdate {
 #[serde(rename_all = "camelCase")]
 pub struct TrafficFrames {
     pub frames: Vec<TrafficFrame>,
-}
-
-/// Events on the per-window `Channel<SessionEvent>`. `type` is the discriminant.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(tag = "type")]
-pub enum SessionEvent {
-    StateChanged(StateChanged),
-    PollUpdate(PollUpdate),
-    TrafficFrames(TrafficFrames),
-    /// At most one every 100 ms.
-    Counters(Counters),
-}
-
-/// Full session state, returned by `mm_open_session`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export)]
-#[serde(rename_all = "camelCase")]
-pub struct SessionSnapshot {
-    /// Current state: the same fields as the last `StateChanged` (flattened).
-    #[serde(flatten)]
-    #[ts(flatten)]
-    pub current: StateChanged,
-    /// Last connection config passed to `mm_connect`.
-    pub config: Option<ConnectionConfig>,
-    /// Last poll definition passed to `mm_start_poll`.
-    pub poll: Option<PollDefinition>,
-    pub counters: Counters,
-    /// Last successful poll values for `poll`, if any (lets a reloaded window show stale data).
-    pub last_update: Option<PollUpdate>,
 }
 
 /// One serial port.

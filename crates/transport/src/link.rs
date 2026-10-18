@@ -183,6 +183,31 @@ where
         LinkError::from_io(self.kind, err)
     }
 
+    /// Reads every immediately available byte into the internal buffer without consuming
+    /// it, and returns how many bytes are buffered. Never waits. Used by the test
+    /// simulator to detect a request that arrived before the previous reply was sent.
+    /// There is no upper bound on the buffered bytes (REV-004 n5): it keeps reading while
+    /// bytes are available, which is fine for the test-only caller but must not be used on
+    /// a link a peer can flood.
+    ///
+    /// # Errors
+    /// The link failed or was closed.
+    pub async fn buffered(&mut self) -> Result<usize, LinkError> {
+        loop {
+            let progressed = tokio::select! {
+                biased;
+                r = self.read_some() => Some(r),
+                () = std::future::ready(()) => None,
+            };
+            match progressed {
+                None => return Ok(self.pending.len()),
+                Some(Ok(0)) => return Err(LinkError::Closed),
+                Some(Ok(_)) => {}
+                Some(Err(e)) => return Err(self.classify(&e)),
+            }
+        }
+    }
+
     async fn read_some(&mut self) -> io::Result<usize> {
         let mut buf = [0u8; 512];
         let n = self.stream.read(&mut buf).await?;

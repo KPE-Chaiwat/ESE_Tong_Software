@@ -14,13 +14,27 @@ workspace = true
 name = "esefact-sim-slave"
 path = "src/main.rs"
 
+[features]
+# REPORT-007 CHK2-D3: hold the app's 1 ms OS timer precision (`os_timer.rs` of
+# esefact-desktop) for the whole simulator run, so that `fault delay <ms>` is not rounded
+# up to the 15.6 ms Windows timer tick. Off by default (it builds the app crate). The test
+# tool may depend on the product, never the reverse; no unsafe code here. Build with
+# `cargo build --workspace --features dev-sim-slave/os-timer` and run
+# `target/debug/esefact-sim-slave` (the `--workspace` form reuses the app crate's build).
+os-timer = ["dep:esefact-desktop", "dep:modbus-master"]
+
 [dependencies]
 modbus-core.workspace = true
 transport.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-std", "signal", "rt-multi-thread"] }
+esefact-desktop = { path = "../../apps/desktop/src-tauri", optional = true }
+modbus-master = { workspace = true, optional = true }
 
 [dev-dependencies]
+# Only for `tests/scan_rate.rs`: the app's OS timer precision (`os_timer.rs`). This test
+# tool may depend on the product; the product never depends on it.
+esefact-desktop = { path = "../../apps/desktop/src-tauri" }
 modbus-master.workspace = true
 shared-types.workspace = true
 tempfile.workspace = true

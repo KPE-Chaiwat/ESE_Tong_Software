@@ -1,6 +1,9 @@
-//! Platform services: settings, profiles, logging and filesystem paths.
+//! Platform services: settings, profiles (and the Modbus Master profile schema), logging,
+//! filesystem paths, and pure window layout math (`arrange`).
 //! OS-specific code must live behind a trait with `#[cfg(...)]` implementations.
 
+pub mod arrange;
+pub mod mm_profile;
 mod paths;
 mod profiles;
 

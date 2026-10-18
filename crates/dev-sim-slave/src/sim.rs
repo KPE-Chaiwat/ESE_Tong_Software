@@ -38,6 +38,9 @@ pub enum FaultKind {
 pub struct Fault {
     pub kind: FaultKind,
     pub remaining: Option<u32>,
+    /// Only requests to this unit id are faulted (`unit=<id>`); `None` = every unit. Other
+    /// units are answered normally and do not use up `times=N`.
+    pub unit: Option<u8>,
 }
 
 /// What the connection task does with one request.
@@ -74,6 +77,23 @@ pub struct Core {
     pub(crate) kill_tx: watch::Sender<u64>,
     pub(crate) quit: Notify,
     pub(crate) next_conn: AtomicU64,
+    /// The master's response timeout in ms as told by `master-timeout` (default
+    /// [`DEFAULT_MASTER_TIMEOUT_MS`]). See [`Core::classify_early_request`].
+    master_timeout_ms: AtomicU64,
+}
+
+/// Default for `master-timeout`: the smallest response timeout Modbus Master accepts.
+pub const DEFAULT_MASTER_TIMEOUT_MS: u64 = 50;
+
+/// What a request that arrived before the previous reply was sent means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EarlyRequest {
+    /// The master sent it before its timeout could have expired: two requests in flight
+    /// (logged as `OVERLAP`, a master bug).
+    Overlap,
+    /// It arrived during an injected `fault delay` after at least the master's timeout: the
+    /// master gave up on the late reply and moved on, as it should (logged as `ABANDONED`).
+    Abandoned,
 }
 
 impl Core {
@@ -96,6 +116,7 @@ impl Core {
             kill_tx: watch::Sender::new(0),
             quit: Notify::new(),
             next_conn: AtomicU64::new(1),
+            master_timeout_ms: AtomicU64::new(DEFAULT_MASTER_TIMEOUT_MS),
         })
     }
 
@@ -111,6 +132,24 @@ impl Core {
         self.next_conn.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// The overlap rule (REV-004 m7). `after` is the time from receiving a request to the
+    /// moment the next request was seen waiting, while the reply had not been sent yet:
+    /// - no injected delay, or the next request came earlier than the master's timeout
+    ///   (`master-timeout`, default 50 ms = the smallest timeout the master accepts):
+    ///   [`EarlyRequest::Overlap`];
+    /// - during an injected delay, at or after the master's timeout:
+    ///   [`EarlyRequest::Abandoned`] (the master timed out; the late reply it then gets is
+    ///   expected and must be discarded by the master).
+    #[must_use]
+    pub fn classify_early_request(&self, delayed: bool, after: Duration) -> EarlyRequest {
+        let timeout = Duration::from_millis(self.master_timeout_ms.load(Ordering::Relaxed));
+        if delayed && after >= timeout {
+            EarlyRequest::Abandoned
+        } else {
+            EarlyRequest::Overlap
+        }
+    }
+
     /// Handles one complete request frame.
     pub fn handle(&self, frame: &[u8]) -> Action {
         let (header, pdu) = match decode_tcp(frame) {
@@ -124,8 +163,9 @@ impl Core {
             }
         }
         st.requests += 1;
+        let unit_id = header.unit_id;
         let fault = match &mut st.fault {
-            Some(f) => {
+            Some(f) if f.unit.is_none_or(|u| u == unit_id) => {
                 let kind = f.kind.clone();
                 if let Some(n) = &mut f.remaining {
                     *n -= 1;
@@ -135,7 +175,7 @@ impl Core {
                 }
                 Some(kind)
             }
-            None => None,
+            _ => None,
         };
         let fc = pdu[0];
         let limit = st.limit;
@@ -210,9 +250,10 @@ impl Core {
                     "listening={} fault={} units={} limit={} requests={}",
                     *self.listen_tx.borrow(),
                     st.fault.as_ref().map_or("none".into(), |f| format!(
-                        "{:?}x{}",
+                        "{:?}x{}{}",
                         f.kind,
-                        f.remaining.map_or("inf".into(), |n| n.to_string())
+                        f.remaining.map_or("inf".into(), |n| n.to_string()),
+                        f.unit.map_or(String::new(), |u| format!("@unit{u}"))
                     )),
                     st.units.as_ref().map_or("all".into(), |u| format!("{u:?}")),
                     st.limit,
@@ -248,16 +289,28 @@ impl Core {
             "fault" => {
                 let fault = parse_fault(&words[1..])?;
                 let text = format!(
-                    "{:?} for {}",
+                    "{:?} for {}{}",
                     fault.kind,
                     fault
                         .remaining
                         .map_or("all requests until cleared".into(), |n| format!(
                             "{n} request(s)"
-                        ))
+                        )),
+                    fault
+                        .unit
+                        .map_or(String::new(), |u| format!(" to unit {u}"))
                 );
                 self.lock().fault = Some(fault);
                 Ok(text)
+            }
+            "master-timeout" => {
+                let ms = parse_u64(arg(1, "milliseconds")?)
+                    .filter(|n| (1..=600_000).contains(n))
+                    .ok_or("master-timeout must be 1-600000 ms")?;
+                self.master_timeout_ms.store(ms, Ordering::Relaxed);
+                Ok(format!(
+                    "master timeout {ms} ms: an early request seen at least that long into an injected delay counts as abandoned"
+                ))
             }
             "clear" => {
                 self.lock().fault = None;
@@ -338,15 +391,21 @@ pub fn parse_units(spec: &str) -> Option<Option<Vec<u8>>> {
     ids.filter(|v| !v.is_empty()).map(Some)
 }
 
-/// `<kind> [args] [times=N]`.
+/// `<kind> [args] [times=N] [unit=ID]`.
 ///
 /// # Errors
 /// A message for an unknown kind or bad argument.
 pub fn parse_fault(words: &[&str]) -> Result<Fault, String> {
     let mut remaining = None;
+    let mut unit = None;
     let mut args: Vec<&str> = Vec::new();
     for w in words {
-        if let Some(n) = w.strip_prefix("times=") {
+        if let Some(u) = w.strip_prefix("unit=") {
+            let u = parse_u64(u)
+                .and_then(|u| u8::try_from(u).ok())
+                .ok_or("unit must be 0-255")?;
+            unit = Some(u);
+        } else if let Some(n) = w.strip_prefix("times=") {
             let n = parse_u64(n)
                 .and_then(|n| u32::try_from(n).ok())
                 .filter(|n| *n > 0)
@@ -392,7 +451,11 @@ pub fn parse_fault(words: &[&str]) -> Result<Fault, String> {
         "close" => FaultKind::Close,
         other => return Err(format!("unknown fault \"{other}\"")),
     };
-    Ok(Fault { kind, remaining })
+    Ok(Fault {
+        kind,
+        remaining,
+        unit,
+    })
 }
 
 /// Control command reference (also printed by `help`).
@@ -400,15 +463,16 @@ pub const HELP: &str = "\
 status
 set <coils|discrete|holding|input> <addr> <v> [v...]
 get <coils|discrete|holding|input> <addr> [count]
-fault delay <ms> [times=N]
-fault drop [times=N]
-fault exception <code> [times=N]
-fault wrong-unit <id> [times=N]
-fault wrong-txn [times=N]
-fault wrong-function [times=N]
-fault truncate <bytes> [times=N]
-fault garbage [hex bytes...] [times=N]
-fault close [times=N]
+fault delay <ms> [times=N] [unit=ID]
+fault drop [times=N] [unit=ID]
+fault exception <code> [times=N] [unit=ID]
+fault wrong-unit <id> [times=N] [unit=ID]
+fault wrong-txn [times=N] [unit=ID]
+fault wrong-function [times=N] [unit=ID]
+fault truncate <bytes> [times=N] [unit=ID]
+fault garbage [hex bytes...] [times=N] [unit=ID]
+fault close [times=N] [unit=ID]
+master-timeout <ms>
 clear
 units all | units <id> [id...]
 limit <n>

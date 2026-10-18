@@ -435,3 +435,110 @@ async fn command_errors_are_reported() {
     );
     assert!(sim.command("help").contains("fault delay"));
 }
+
+/// BE-002-6: a fault can target one unit id, so one poll fails while others succeed.
+#[tokio::test]
+async fn fault_filtered_by_unit() {
+    let (sim, _) = sim().await;
+    let mut c = client(&sim).await;
+    let reply = sim.command("fault exception 4 times=2 unit=3");
+    assert!(reply.starts_with("ok"), "{reply}");
+    assert!(reply.contains("to unit 3"), "{reply}");
+    assert!(sim.command("status").contains("@unit3"));
+    // Unit 1 is answered normally and does not use up the fault.
+    for txn in 1..=3 {
+        assert!(matches!(
+            ask(&mut c, txn, 1, &regs(0, 1)).await.unwrap(),
+            Reply::Response(_)
+        ));
+    }
+    for txn in 4..=5 {
+        assert_eq!(
+            ask(&mut c, txn, 3, &regs(0, 1)).await.unwrap(),
+            Reply::Exception {
+                function: 3,
+                code: ExceptionCode(4)
+            }
+        );
+    }
+    // times=2 used up by unit 3 only.
+    assert!(matches!(
+        ask(&mut c, 6, 3, &regs(0, 1)).await.unwrap(),
+        Reply::Response(_)
+    ));
+    assert!(sim.command("status").contains("fault=none"));
+    // Until cleared, with other kinds too.
+    assert!(sim.command("fault drop unit=7").starts_with("ok"));
+    assert!(raw(&mut c, 7, 7, &regs(0, 1).encode_pdu().unwrap())
+        .await
+        .is_err());
+    assert!(ask(&mut c, 8, 1, &regs(0, 1)).await.is_ok());
+    assert!(sim.command("fault garbage DE AD unit=2").starts_with("ok"));
+    assert!(sim.command("fault drop unit=256").starts_with("error"));
+    assert!(sim.command("fault drop unit=x").starts_with("error"));
+}
+
+/// BE-002-6: the log shows `OVERLAP` when a client sends a request before the previous
+/// reply (so integration tests can assert "never" from the log).
+#[tokio::test]
+async fn overlap_is_logged() {
+    let (sim, lines) = sim().await;
+    let mut c = client(&sim).await;
+    assert!(sim.command("fault delay 50").starts_with("ok"));
+    // Sequential: no overlap.
+    assert!(ask(&mut c, 1, 1, &regs(0, 1)).await.is_ok());
+    assert!(!lines.lock().unwrap().iter().any(|l| l.contains("OVERLAP")));
+    // Pipelined: the second request is waiting while the first reply is delayed.
+    let pdu = regs(0, 1).encode_pdu().unwrap();
+    c.send(&encode_tcp(2, 1, &pdu)).await.unwrap();
+    c.send(&encode_tcp(3, 1, &pdu)).await.unwrap();
+    assert!(c.receive_frame(T).await.is_ok());
+    assert!(c.receive_frame(T).await.is_ok());
+    let overlaps = lines
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.contains("OVERLAP"))
+        .count();
+    assert_eq!(overlaps, 1);
+}
+
+/// REV-004 m7: a request that arrives during an injected delay after the master's timeout
+/// (`master-timeout`, default 50 ms) is the master giving up on the late reply: logged as
+/// `ABANDONED`, never as `OVERLAP`. Earlier than the timeout it is still an `OVERLAP`.
+#[tokio::test]
+async fn request_after_the_master_timeout_during_a_delay_is_abandoned_not_overlap() {
+    let count = |lines: &Arc<Mutex<Vec<String>>>, what: &str| {
+        lines
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|l| l.contains(what))
+            .count()
+    };
+    let (sim, lines) = sim().await;
+    let mut c = client(&sim).await;
+    assert!(sim.command("fault delay 400").starts_with("ok"));
+    assert!(sim.command("master-timeout 100").starts_with("ok"));
+    let pdu = regs(0, 1).encode_pdu().unwrap();
+    // The master times out after 100 ms and sends its next request at ~150 ms.
+    c.send(&encode_tcp(1, 1, &pdu)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    c.send(&encode_tcp(2, 1, &pdu)).await.unwrap();
+    assert!(c.receive_frame(Duration::from_secs(2)).await.is_ok());
+    assert!(c.receive_frame(Duration::from_secs(2)).await.is_ok());
+    assert_eq!(count(&lines, "OVERLAP"), 0, "{:?}", lines.lock().unwrap());
+    assert_eq!(count(&lines, "ABANDONED"), 1);
+
+    // The same timing with a 1000 ms master timeout is a real overlap.
+    assert!(sim.command("master-timeout 1000").starts_with("ok"));
+    c.send(&encode_tcp(3, 1, &pdu)).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    c.send(&encode_tcp(4, 1, &pdu)).await.unwrap();
+    assert!(c.receive_frame(Duration::from_secs(2)).await.is_ok());
+    assert!(c.receive_frame(Duration::from_secs(2)).await.is_ok());
+    assert_eq!(count(&lines, "OVERLAP"), 1);
+    assert_eq!(count(&lines, "ABANDONED"), 1);
+    assert!(sim.command("master-timeout 0").starts_with("error"));
+    assert!(sim.command("help").contains("master-timeout <ms>"));
+}

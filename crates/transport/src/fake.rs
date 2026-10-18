@@ -61,6 +61,8 @@ struct State {
     requests: Vec<(u8, Request)>,
     /// When each request frame was received (Tokio clock, pausable in tests).
     request_times: Vec<Instant>,
+    /// Unit id and receive time of every decodable request frame, whoever it addresses.
+    request_log: Vec<(u8, Instant)>,
 }
 
 struct Answer {
@@ -94,6 +96,7 @@ impl FakeSlave {
                 default: Behavior::Respond,
                 requests: Vec::new(),
                 request_times: Vec::new(),
+                request_log: Vec::new(),
             })),
         }
     }
@@ -132,6 +135,13 @@ impl FakeSlave {
     #[must_use]
     pub fn request_times(&self) -> Vec<Instant> {
         self.lock().request_times.clone()
+    }
+
+    /// Unit id and receive time of every decodable request frame on the line, including
+    /// those addressed to other units (which this slave does not answer), in order.
+    #[must_use]
+    pub fn request_log(&self) -> Vec<(u8, Instant)> {
+        self.lock().request_log.clone()
     }
 
     /// Serves one stream until the peer closes it or a [`Behavior::Close`] is scripted.
@@ -204,6 +214,7 @@ impl FakeSlave {
 
         let (behavior, slave_id) = {
             let mut st = self.lock();
+            st.request_log.push((unit, Instant::now()));
             if unit != 0 && unit != st.slave_id {
                 return None;
             }

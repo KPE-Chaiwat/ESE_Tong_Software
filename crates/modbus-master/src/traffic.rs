@@ -2,10 +2,10 @@
 
 use std::collections::VecDeque;
 
-use shared_types::{ExceptionCode, TrafficDirection, TrafficFrame};
+use shared_types::{ExceptionCode, TrafficDirection, TrafficFrame, TrafficOrigin};
 use transport::Framing;
 
-/// The backend keeps at most this many frames per session (REQ-001).
+/// The backend keeps at most this many frames per connection (REQ-001, REQ-002).
 pub const TRAFFIC_LOG_CAPACITY: usize = 5_000;
 
 /// Ring buffer of frames with a strictly increasing sequence number.
@@ -24,6 +24,7 @@ impl TrafficLog {
         bytes: Vec<u8>,
         framing: Framing,
         note: Option<String>,
+        origin: Option<TrafficOrigin>,
     ) -> TrafficFrame {
         self.next_seq += 1;
         let (slave_id, function, exception_code) = header_fields(&bytes, framing);
@@ -36,6 +37,7 @@ impl TrafficLog {
             function,
             exception_code,
             note,
+            origin,
         };
         if self.frames.len() == TRAFFIC_LOG_CAPACITY {
             self.frames.pop_front();
@@ -81,7 +83,14 @@ mod tests {
     fn capacity_and_seq() {
         let mut log = TrafficLog::default();
         for _ in 0..(TRAFFIC_LOG_CAPACITY + 1) {
-            log.record(0, TrafficDirection::Tx, vec![1, 3], Framing::Tcp, None);
+            log.record(
+                0,
+                TrafficDirection::Tx,
+                vec![1, 3],
+                Framing::Tcp,
+                None,
+                None,
+            );
         }
         assert_eq!(log.len(), TRAFFIC_LOG_CAPACITY);
         let frames = log.frames();

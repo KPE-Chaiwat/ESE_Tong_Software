@@ -42,6 +42,7 @@ impl From<SessionError> for AppError {
             SessionError::Validation(_) => AppErrorCode::Validation,
             SessionError::NotConnected => AppErrorCode::NotConnected,
             SessionError::InvalidState(_) => AppErrorCode::InvalidState,
+            SessionError::PollNotFound(_) => AppErrorCode::PollNotFound,
             SessionError::Closed => AppErrorCode::NoSession,
         };
         let err = Self::new(code, e.to_string());
@@ -102,6 +103,10 @@ mod tests {
             (SessionError::NotConnected.into(), "notConnected"),
             (SessionError::Closed.into(), "noSession"),
             (
+                SessionError::PollNotFound(shared_types::PollId(3)).into(),
+                "pollNotFound",
+            ),
+            (
                 SessionError::InvalidState("x".into()).into(),
                 "invalidState",
             ),
@@ -114,8 +119,8 @@ mod tests {
             (
                 ProfileError::UnsupportedSchema {
                     name: "A".into(),
-                    found: 2,
-                    supported: 1,
+                    found: 3,
+                    supported: 2,
                 }
                 .into(),
                 "unsupportedSchema",

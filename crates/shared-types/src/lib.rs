@@ -4,14 +4,20 @@
 //! `apps/desktop/src/shared/bindings/`. Never edit the generated files by hand;
 //! run `pnpm bindings` instead.
 //!
-//! Names follow the BE-001 contract. Every field is camelCase on the wire. Timestamps
-//! (`at`, `modifiedAt`, `since`) are milliseconds since the Unix epoch.
+//! Names follow the BE-001 and BE-002 contracts. Every field is camelCase on the wire.
+//! Timestamps (`at`, `modifiedAt`, `lastOkAt`) are milliseconds since the Unix epoch.
 
+mod layout;
 mod modbus;
 mod profile;
+mod session;
+mod view;
 
+pub use layout::*;
 pub use modbus::*;
 pub use profile::*;
+pub use session::*;
+pub use view::*;
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -39,21 +45,25 @@ impl AppInfo {
 #[ts(export)]
 #[serde(rename_all = "camelCase")]
 pub enum AppErrorCode {
-    /// Input rejected before anything was sent. `message` is user-facing.
+    /// Input rejected before anything was done. `message` is user-facing and `field`
+    /// names the offending input (for example `name`, `aliases`, `polls`, `host`, `order`).
     Validation,
-    /// The command needs a link (connected, paused or polling) and there is none.
+    /// The command needs a link (connection `connected`) and there is none.
     NotConnected,
-    /// The command is not allowed in the current session state (for example connect while connected).
+    /// The command is not allowed in the current connection state (for example connect
+    /// while connected, or applying a profile while connected).
     InvalidState,
-    /// `mm_open_session` was not called for this window.
+    /// `mm_open_session` was not called for this window, or its connection window is gone.
     NoSession,
+    /// No poll with this id on the connection (deleted meanwhile).
+    PollNotFound,
     /// `profiles_save` without overwrite, or rename onto an existing name (case-insensitive).
     ProfileExists,
     ProfileNotFound,
     InvalidProfileName,
     /// The profile file has a newer `schemaVersion` than this build understands.
     UnsupportedSchema,
-    /// The profile file is not valid JSON or does not match the profile shape.
+    /// The profile file is not valid JSON or does not match the profile shape and rules.
     InvalidProfile,
     /// Unknown tool id passed to `window_open_tool` / `profiles_*`.
     UnknownTool,
@@ -61,7 +71,7 @@ pub enum AppErrorCode {
     NotSupported,
     /// File system or operating system error.
     Io,
-    /// Bug or unexpected runtime failure.
+    /// Bug or unexpected runtime failure (also a window that could not be created).
     Internal,
 }
 
@@ -74,7 +84,7 @@ pub struct AppError {
     /// Human readable English message.
     pub message: String,
     /// For `validation`: the offending input field as named in the DTO (for example
-    /// `timeoutMs`, `slaveId`, `values`), so the UI can focus it. Otherwise null.
+    /// `timeoutMs`, `slaveId`, `values`, `name`), so the UI can focus it. Otherwise null.
     pub field: Option<String>,
 }
 

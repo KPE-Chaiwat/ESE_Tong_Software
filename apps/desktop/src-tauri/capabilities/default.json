@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Permissions for the launcher and tool windows (least privilege: only the window APIs the frontend calls). Tool windows are labelled modbus-master-<n> by window_open_tool. App commands (mm_*, profiles_*, window_open_tool) need no capability entry.",
+  "description": "Permissions for the launcher and tool windows (least privilege: only the window APIs the frontend calls). Tool windows are labelled modbus-master-<n> by window_open_tool; native poll windows modbus-master-<n>-poll-<pollId> (BE-002), also matched by modbus-master-*. They use the same window APIs (setTitle, onCloseRequested, destroy). App commands (mm_*, profiles_*, window_open_tool, app_list_monitors) need no capability entry.",
   "windows": ["main", "modbus-master-*"],
   "permissions": ["core:default", "core:window:allow-set-title", "core:window:allow-destroy"]
 }

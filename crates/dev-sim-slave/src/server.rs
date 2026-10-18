@@ -9,7 +9,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinHandle;
 use transport::{Framing, Link, LinkKind, ReceiveError, Role, StreamLink};
 
-use crate::sim::{Action, Core};
+use crate::sim::{Action, Core, EarlyRequest};
+
+/// How often the line is checked for an early request during an injected delay.
+const EARLY_REQUEST_PROBE: Duration = Duration::from_millis(2);
 
 /// Accepts Modbus connections while `listen_tx` is `true`. While it is `false` the listening
 /// socket is closed, so connection attempts are refused by the OS (like a device that is
@@ -85,6 +88,7 @@ async fn serve_connection(core: Arc<Core>, stream: TcpStream, peer: SocketAddr, 
                 return;
             }
         };
+        let received_at = tokio::time::Instant::now();
         core.log_frame(id, "RX", &frame, None);
         match core.handle(&frame) {
             Action::Ignore(reason) => core.log(&format!("conn={id} NO-REPLY # {reason}")),
@@ -94,13 +98,45 @@ async fn serve_connection(core: Arc<Core>, stream: TcpStream, peer: SocketAddr, 
                 close,
                 note,
             } => {
+                // A master must not send the next request before this reply (one request
+                // in flight per link). Bytes already waiting prove it did, unless it gave
+                // up on a reply held back by an injected delay (REV-004 m7): during the
+                // delay the line is checked every few ms to learn when the next request
+                // arrived, and `Core::classify_early_request` decides.
+                let mut early: Option<Duration> = None;
                 if !delay.is_zero() {
-                    tokio::select! {
-                        () = tokio::time::sleep(delay) => {}
-                        _ = kill_rx.changed() => {
-                            core.log(&format!("conn={id} CLOSE (stop command)"));
-                            return;
+                    let deadline = received_at + delay;
+                    loop {
+                        if early.is_none() && matches!(link.buffered().await, Ok(n) if n > 0) {
+                            early = Some(received_at.elapsed());
                         }
+                        let now = tokio::time::Instant::now();
+                        if now >= deadline {
+                            break;
+                        }
+                        let step = (deadline - now).min(EARLY_REQUEST_PROBE);
+                        tokio::select! {
+                            () = tokio::time::sleep(step) => {}
+                            _ = kill_rx.changed() => {
+                                core.log(&format!("conn={id} CLOSE (stop command)"));
+                                return;
+                            }
+                        }
+                    }
+                }
+                if early.is_none() && matches!(link.buffered().await, Ok(n) if n > 0) {
+                    early = Some(received_at.elapsed());
+                }
+                if let Some(after) = early {
+                    let ms = after.as_millis();
+                    match core.classify_early_request(!delay.is_zero(), after) {
+                        EarlyRequest::Overlap => core.log(&format!(
+                            "conn={id} OVERLAP # the next request arrived {ms} ms after this request, before this reply"
+                        )),
+                        EarlyRequest::Abandoned => core.log(&format!(
+                            "conn={id} ABANDONED # the next request arrived {ms} ms into an injected delay of {} ms: the master timed out and moved on (not an overlap)",
+                            delay.as_millis()
+                        )),
                     }
                 }
                 if let Err(e) = link.send(&bytes).await {

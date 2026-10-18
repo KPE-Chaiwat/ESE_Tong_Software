@@ -44,7 +44,20 @@ async-trait = "0.1"
 dirs = "7"
 proptest = "1"
 tempfile = "3"
+# Win32 calls behind #[cfg(windows)] in src-tauri only (timer precision, the Alt key menu
+# guard). Already in the lock file through tokio/tao.
+windows-sys = "0.61"
 
+# Every crate inherits these lints with `[lints] workspace = true`.
+#
+# The one exception (REPORT-006 D1/D2, REV-008 m-4, accepted by the PM): `esefact-desktop`
+# (apps/desktop/src-tauri) declares its own lints with `unsafe_code = "deny"` instead of
+# `forbid`, because `forbid` cannot be allowed locally and two Win32 modules need it:
+# `src/key_menu.rs` (module `win`, window subclassing) and `src/os_timer.rs` (module `win`,
+# timeBeginPeriod/timeEndPeriod). It also denies `clippy::undocumented_unsafe_blocks` and
+# must mirror every lint added here. The test `apps/desktop/src-tauri/tests/unsafe_policy.rs`
+# fails on unsafe code or `allow(unsafe_code)` anywhere else in the workspace and on a crate
+# that stops inheriting these lints.
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

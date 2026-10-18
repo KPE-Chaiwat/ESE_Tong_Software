@@ -191,6 +191,20 @@ impl ProfileStore {
         &self,
         tool_id: &str,
     ) -> Result<Vec<ProfileEntry<T>>, ProfileError> {
+        self.list_with(tool_id, decode_serde)
+    }
+
+    /// Like [`ProfileStore::list`], decoding each document with `decode` (for example a
+    /// schema migration). `decode` gets the JSON object with `name` set from the file name
+    /// and a `schemaVersion` no higher than the supported one.
+    ///
+    /// # Errors
+    /// [`ProfileError::InvalidToolId`] or [`ProfileError::Io`].
+    pub fn list_with<T>(
+        &self,
+        tool_id: &str,
+        decode: impl Fn(Value) -> Result<T, String>,
+    ) -> Result<Vec<ProfileEntry<T>>, ProfileError> {
         Ok(self
             .files(tool_id)?
             .into_iter()
@@ -200,7 +214,7 @@ impl ProfileStore {
                     .ok()
                     .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                     .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX));
-                let document = self.read(&name, &path);
+                let document = self.read(&name, &path, &decode);
                 ProfileEntry {
                     name,
                     modified_at_ms,
@@ -215,13 +229,32 @@ impl ProfileStore {
     /// # Errors
     /// `NotFound`, `UnsupportedSchema`, `Invalid`, `InvalidToolId`, `Io`.
     pub fn get<T: DeserializeOwned>(&self, tool_id: &str, name: &str) -> Result<T, ProfileError> {
+        self.get_with(tool_id, name, decode_serde)
+    }
+
+    /// Like [`ProfileStore::get`], decoding the document with `decode`.
+    ///
+    /// # Errors
+    /// `NotFound`, `UnsupportedSchema`, `Invalid` (also when `decode` fails),
+    /// `InvalidToolId`, `Io`.
+    pub fn get_with<T>(
+        &self,
+        tool_id: &str,
+        name: &str,
+        decode: impl Fn(Value) -> Result<T, String>,
+    ) -> Result<T, ProfileError> {
         let (stored, path) = self
             .find(tool_id, name)?
             .ok_or_else(|| ProfileError::NotFound(name.to_owned()))?;
-        self.read(&stored, &path)
+        self.read(&stored, &path, &decode)
     }
 
-    fn read<T: DeserializeOwned>(&self, name: &str, path: &Path) -> Result<T, ProfileError> {
+    fn read<T>(
+        &self,
+        name: &str,
+        path: &Path,
+        decode: &impl Fn(Value) -> Result<T, String>,
+    ) -> Result<T, ProfileError> {
         let invalid = |detail: String| ProfileError::Invalid {
             name: name.to_owned(),
             detail,
@@ -243,7 +276,7 @@ impl ProfileStore {
             });
         }
         obj.insert("name".into(), Value::String(name.to_owned()));
-        serde_json::from_value(value).map_err(|e| invalid(e.to_string()))
+        decode(value).map_err(invalid)
     }
 
     /// Saves `document` as `name`. With `overwrite = false` an existing profile with the
@@ -366,6 +399,10 @@ impl ProfileStore {
         fs::remove_file(path)?;
         Ok(())
     }
+}
+
+fn decode_serde<T: DeserializeOwned>(value: Value) -> Result<T, String> {
+    serde_json::from_value(value).map_err(|e| e.to_string())
 }
 
 enum CreateError {
