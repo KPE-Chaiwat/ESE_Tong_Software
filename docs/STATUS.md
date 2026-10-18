@@ -15,7 +15,7 @@ Product: ESEfact launcher. Tool 1: **Modbus Master** v0.1.0 shipped in docs (REQ
 - The owner's pause/resume style: stop all agents, clean up, keep status files so work can continue without restarting.
 
 ## Git state
-`main`: 2 commits (`c958f7a` the owner's first commit, `f75f3f4` version + changelog). **About 500 changed/untracked entries are NOT committed** (everything of REQ-002/003: backend phase 1, frontend A/B1/B2a/B2b/FE-003 and fixes, docs, e2e). `.codex/config.toml` is modified by the IDE: never commit it. Recommendation: ask the owner for a go-ahead to commit (several commits by area, or a backup branch such as `wip/multi-poll`) before any new large work.
+`main`: all REQ-002/003 work committed on 2026-10-18 at the owner's request, in four commits by area (`cfba581` backend, `efd215d` frontend, `fd4da25` e2e, `c632259` docs), plus the `AGENTS.md` commit for Codex hand-over. Only `.codex/config.toml` remains modified (IDE-owned: never commit or edit it). The intermediate commits do not build on their own; the tip does (`pnpm check` green before committing).
 
 ## Board
 | Area | State | Evidence / where |
@@ -37,7 +37,7 @@ Product: ESEfact launcher. Tool 1: **Modbus Master** v0.1.0 shipped in docs (REQ
 
 ## NEXT STEPS (in order)
 1. DONE: D11/D12 verified (REPORT-009). Modbus Master phase 1 is closed from the team's side; only owner items remain.
-2. Ask the owner: (a) commit go-ahead (suggest several commits by area or a backup branch `wip/multi-poll`); (b) permission to delete `target\debug\incremental` (~12 GB) or set `incremental=false`; (c) the OWNER MANUAL TESTS (CHK2 section M: two monitors with different DPI, other scale factors, real Win+Left snap, AltGr/Alt codes/IME, NVDA, real Thai keyboard, other layouts, RTU hardware, 10-minute soak).
+2. Ask the owner: (a) DONE: commit; (b) permission to delete `target\debug\incremental` (~12 GB) or set `incremental=false`; (c) the OWNER MANUAL TESTS (CHK2 section M: two monitors with different DPI, other scale factors, real Win+Left snap, AltGr/Alt codes/IME, NVDA, real Thai keyboard, other layouts, RTU hardware, 10-minute soak).
 3. Owner decisions after Modbus Master is closed (each is a large piece of work: estimate cost first): launcher mockup/polish, installer + CI + `cargo-nextest`, Modbus Slave, IP Scanner, phase 2 (pop out by dragging, dock by dragging; Windows only, risks R1-R5 in DES-002 2.10.11).
 
 ## Other open owner items (not blocking)
