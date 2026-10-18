@@ -19,7 +19,9 @@ export interface SerialPortsActions {
 export type SerialPortsStore = SerialPortsData & SerialPortsActions;
 export type SerialPortsStoreApi = StoreApi<SerialPortsStore>;
 
-export function createSerialPortsStore(deps: { ipc: ModbusMasterIpc }): SerialPortsStoreApi {
+export function createSerialPortsStore(deps: {
+  ipc: Pick<ModbusMasterIpc, "listSerialPorts">;
+}): SerialPortsStoreApi {
   let latest = 0;
   return createStore<SerialPortsStore>()((set) => ({
     status: "idle",

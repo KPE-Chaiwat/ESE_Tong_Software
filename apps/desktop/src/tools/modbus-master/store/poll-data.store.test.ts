@@ -1,225 +1,287 @@
 import type {
+  ConnectionState,
   PollDefinition,
-  PollUpdateEvent,
-  SessionState,
+  PollState,
+  PollUpdate,
 } from "@/shared/ipc/modbus-master.types";
-import { pollDataActionFor } from "./poll-data.logic";
-import { createPollDataStore, type PollDataStoreApi } from "./poll-data.store";
-import { SESSION_STATES } from "./session.logic";
+import {
+  connectionClearsData,
+  definitionChangeAction,
+  kindOf,
+  matchesDefinition,
+  type PollDataAction,
+  pollDataActionFor,
+  sameDefinition,
+} from "./poll-data.logic";
+import { createPollDataStore, type PollDataStoreApi, selectValueAt } from "./poll-data.store";
 
 const def: PollDefinition = {
   slaveId: 1,
   function: 3,
   startAddress: 0,
   quantity: 3,
-  scanRateMs: 1000,
+  scanRateMs: 100,
 };
-
-function update(over: Partial<PollUpdateEvent> = {}): PollUpdateEvent {
-  return {
-    type: "PollUpdate",
-    seq: 1,
-    at: 5000,
-    slaveId: 1,
-    function: 3,
-    startAddress: 0,
-    values: [1, 2, 3],
-    roundTripMs: 8,
-    ...over,
-  };
-}
+const update = (patch: Partial<PollUpdate> = {}): PollUpdate => ({
+  pollId: 1,
+  seq: 1,
+  at: 1000,
+  slaveId: 1,
+  function: 3,
+  startAddress: 0,
+  values: [10, 20, 30],
+  roundTripMs: 8,
+  ...patch,
+});
 
 let store: PollDataStoreApi;
-const get = () => store.getState();
-
 beforeEach(() => {
-  store = createPollDataStore();
+  store = createPollDataStore({ pollId: 1 });
 });
 
 describe("initial state", () => {
-  it("has no data", () => {
-    expect(get()).toMatchObject({
+  it("is empty", () => {
+    expect(store.getState()).toMatchObject({
       status: "none",
       definition: null,
+      kind: "registers",
       values: null,
       seq: 0,
       lastOkAt: null,
       roundTripMs: null,
+      clearedBecause: null,
     });
   });
 });
 
-describe("begin", () => {
-  it("goes to loading and drops old values", () => {
-    get().begin(def);
-    get().applyUpdate(update());
-    get().begin({ ...def, function: 1 });
-    expect(get()).toMatchObject({ status: "loading", values: null, kind: "bits", seq: 0 });
-    expect(get().definition?.function).toBe(1);
+describe("begin, applyUpdate, markStale, clear", () => {
+  it("begin makes the view loading and drops old values", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update());
+    store.getState().begin(def);
+    expect(store.getState()).toMatchObject({
+      status: "loading",
+      definition: def,
+      values: null,
+      seq: 0,
+    });
   });
 
-  it("derives the kind from the function", () => {
-    get().begin({ ...def, function: 2 });
-    expect(get().kind).toBe("bits");
-    get().begin({ ...def, function: 4 });
-    expect(get().kind).toBe("registers");
+  it("begin sets the kind from the function", () => {
+    store.getState().begin({ ...def, function: 1 });
+    expect(store.getState().kind).toBe("bits");
+    store.getState().begin({ ...def, function: 4 });
+    expect(store.getState().kind).toBe("registers");
   });
-});
 
-describe("applyUpdate", () => {
-  it("goes live with the values, time and round trip", () => {
-    get().begin(def);
-    get().applyUpdate(update({ seq: 4, at: 9000, roundTripMs: 12 }));
-    expect(get()).toMatchObject({
+  it("a valid update makes the view live", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update({ seq: 5, at: 4242, roundTripMs: 12 }));
+    expect(store.getState()).toMatchObject({
       status: "live",
-      values: [1, 2, 3],
-      seq: 4,
-      lastOkAt: 9000,
+      values: [10, 20, 30],
+      seq: 5,
+      lastOkAt: 4242,
       roundTripMs: 12,
     });
   });
 
-  it("ignores out-of-order and duplicate sequence numbers", () => {
-    get().begin(def);
-    get().applyUpdate(update({ seq: 5, values: [5, 5, 5] }));
-    get().applyUpdate(update({ seq: 4, values: [4, 4, 4] }));
-    get().applyUpdate(update({ seq: 5, values: [9, 9, 9] }));
-    expect(get().values).toEqual([5, 5, 5]);
-    expect(get().seq).toBe(5);
-    get().applyUpdate(update({ seq: 6, values: [6, 6, 6] }));
-    expect(get().values).toEqual([6, 6, 6]);
+  it("an update before begin is ignored (no definition)", () => {
+    store.getState().applyUpdate(update());
+    expect(store.getState().status).toBe("none");
   });
 
-  it("ignores an update for an old definition after Apply", () => {
-    get().begin(def);
-    get().applyUpdate(update({ seq: 1 }));
-    get().begin({ ...def, startAddress: 10, quantity: 2 });
-    get().applyUpdate(update({ seq: 2, startAddress: 0, values: [1, 2, 3] }));
-    expect(get().status).toBe("loading");
-    expect(get().values).toBeNull();
-    get().applyUpdate(update({ seq: 3, startAddress: 10, values: [7, 8] }));
-    expect(get()).toMatchObject({ status: "live", values: [7, 8] });
+  it("updates for another poll are ignored", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update({ pollId: 2 }));
+    expect(store.getState().values).toBeNull();
   });
 
-  it("ignores updates of another slave, function or length", () => {
-    get().begin(def);
-    get().applyUpdate(update({ slaveId: 2 }));
-    get().applyUpdate(update({ function: 4 }));
-    get().applyUpdate(update({ values: [1, 2] }));
-    expect(get().status).toBe("loading");
+  it("an out-of-order seq is ignored", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update({ seq: 5, values: [1, 1, 1] }));
+    store.getState().applyUpdate(update({ seq: 4, values: [2, 2, 2] }));
+    store.getState().applyUpdate(update({ seq: 5, values: [3, 3, 3] }));
+    expect(store.getState().values).toEqual([1, 1, 1]);
+    store.getState().applyUpdate(update({ seq: 6, values: [4, 4, 4] }));
+    expect(store.getState().values).toEqual([4, 4, 4]);
   });
 
-  it("ignores updates when no poll was begun", () => {
-    get().applyUpdate(update());
-    expect(get().status).toBe("none");
-    expect(get().values).toBeNull();
+  it("an update for an old definition is ignored after Apply", () => {
+    store.getState().begin(def);
+    store.getState().begin({ ...def, quantity: 5 });
+    store.getState().applyUpdate(update());
+    expect(store.getState().values).toBeNull();
+    store.getState().applyUpdate(update({ values: [1, 2, 3, 4, 5], seq: 2 }));
+    expect(store.getState().status).toBe("live");
   });
 
-  it("restarts the sequence after begin so a restarted backend poll is not dropped", () => {
-    get().begin(def);
-    get().applyUpdate(update({ seq: 500 }));
-    get().begin(def);
-    get().applyUpdate(update({ seq: 1, values: [9, 9, 9] }));
-    expect(get().values).toEqual([9, 9, 9]);
+  it("markStale keeps the values and shows them as stale", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update());
+    store.getState().markStale();
+    expect(store.getState()).toMatchObject({ status: "stale", values: [10, 20, 30] });
+    store.getState().applyUpdate(update({ seq: 2, values: [1, 2, 3] }));
+    expect(store.getState().status).toBe("live");
   });
 
-  it("returns to live from stale on a valid update", () => {
-    get().begin(def);
-    get().applyUpdate(update({ seq: 1 }));
-    get().markStale();
-    get().applyUpdate(update({ seq: 2 }));
-    expect(get().status).toBe("live");
-  });
-});
-
-describe("markStale", () => {
-  it("marks existing values stale and keeps them", () => {
-    get().begin(def);
-    get().applyUpdate(update());
-    get().markStale();
-    expect(get().status).toBe("stale");
-    expect(get().values).toEqual([1, 2, 3]);
-    expect(get().lastOkAt).toBe(5000);
+  it("markStale with no values keeps the status", () => {
+    store.getState().markStale();
+    expect(store.getState().status).toBe("none");
+    store.getState().begin(def);
+    store.getState().markStale();
+    expect(store.getState().status).toBe("loading");
   });
 
-  it("keeps 'none' when there are no values", () => {
-    get().markStale();
-    expect(get().status).toBe("none");
-  });
-
-  it("keeps 'loading' when nothing was ever received", () => {
-    get().begin(def);
-    get().markStale();
-    expect(get().status).toBe("loading");
-    expect(get().values).toBeNull();
-  });
-});
-
-describe("clear", () => {
-  it("resets to none", () => {
-    get().begin(def);
-    get().applyUpdate(update());
-    get().clear();
-    expect(get()).toMatchObject({
+  it("clear empties the view; the reason is kept for the empty text", () => {
+    store.getState().begin(def);
+    store.getState().applyUpdate(update());
+    store.getState().clear("settingsChanged");
+    expect(store.getState()).toMatchObject({
       status: "none",
       values: null,
       definition: null,
-      clearedBecause: null,
+      clearedBecause: "settingsChanged",
     });
+    store.getState().clear();
+    expect(store.getState().clearedBecause).toBeNull();
   });
 
-  it("remembers that the settings changed", () => {
-    get().begin(def);
-    get().applyUpdate(update());
-    get().clear("settingsChanged");
-    expect(get().clearedBecause).toBe("settingsChanged");
-    get().begin(def);
-    expect(get().clearedBecause).toBeNull();
+  it("a live update takes the settings-changed reason away", () => {
+    store.getState().clear("settingsChanged");
+    store.getState().begin(def);
+    store.getState().applyUpdate(update());
+    expect(store.getState().clearedBecause).toBeNull();
   });
 });
 
-describe("wiring rule (session state -> poll data action)", () => {
-  const act = pollDataActionFor;
-
-  it("begins when a poll starts from connected or paused", () => {
-    expect(act("connected", "polling", false)).toBe("begin");
-    expect(act("paused", "polling", false)).toBe("begin");
-    expect(act("connected", "timeout", false)).toBe("begin");
-    expect(act("connected", "exception", false)).toBe("begin");
+describe("seed (the attach snapshot carries the last update)", () => {
+  it("shows live values at once, without passing through loading", () => {
+    const seen: string[] = [];
+    store.subscribe((s) => seen.push(s.status));
+    store.getState().seed(def, update({ seq: 9, at: 777 }));
+    expect(seen).toEqual(["live"]);
+    expect(store.getState()).toMatchObject({
+      status: "live",
+      values: [10, 20, 30],
+      seq: 9,
+      lastOkAt: 777,
+      definition: def,
+    });
   });
 
-  it("begins again on Apply while running (restart) and not on a normal cycle result", () => {
-    expect(act("polling", "polling", true)).toBe("begin");
-    expect(act("timeout", "polling", true)).toBe("begin");
-    expect(act("timeout", "polling", false)).toBe("none");
-    expect(act("polling", "polling", false)).toBe("none");
+  it("an older update than the seed is ignored afterwards", () => {
+    store.getState().seed(def, update({ seq: 9 }));
+    store.getState().applyUpdate(update({ seq: 8, values: [0, 0, 0] }));
+    expect(store.getState().values).toEqual([10, 20, 30]);
+    store.getState().applyUpdate(update({ seq: 10, values: [1, 1, 1] }));
+    expect(store.getState().values).toEqual([1, 1, 1]);
   });
 
-  it("marks the values stale when a cycle fails", () => {
-    expect(act("polling", "timeout", false)).toBe("markStale");
-    expect(act("timeout", "timeout", false)).toBe("markStale");
-    expect(act("timeout", "exception", false)).toBe("markStale");
-    expect(act("exception", "badResponse", false)).toBe("markStale");
+  it("ignores an update of another poll or another definition", () => {
+    store.getState().seed(def, update({ pollId: 2 }));
+    store.getState().seed(def, update({ values: [1] }));
+    expect(store.getState().status).toBe("none");
+  });
+});
+
+describe("selectors", () => {
+  it("selectValueAt reads one row", () => {
+    store.getState().seed(def, update());
+    expect(selectValueAt(1)(store.getState())).toBe(20);
+    expect(selectValueAt(9)(store.getState())).toBeUndefined();
+    store.getState().clear();
+    expect(selectValueAt(0)(store.getState())).toBeUndefined();
   });
 
-  it("marks stale on paused and disconnected", () => {
-    for (const from of ["polling", "timeout", "exception", "badResponse"] as const) {
-      expect(act(from, "paused", false)).toBe("markStale");
-      expect(act(from, "disconnected", false)).toBe("markStale");
+  it("a row selector does not notify when another row changes", () => {
+    store.getState().seed(def, update());
+    let value = selectValueAt(0)(store.getState());
+    let changes = 0;
+    store.subscribe((s) => {
+      const next = selectValueAt(0)(s);
+      if (next !== value) {
+        changes += 1;
+        value = next;
+      }
+    });
+    store.getState().applyUpdate(update({ seq: 2, values: [10, 99, 30] }));
+    expect(changes).toBe(0);
+    store.getState().applyUpdate(update({ seq: 3, values: [11, 99, 30] }));
+    expect(changes).toBe(1);
+  });
+});
+
+describe("pollDataActionFor (poll state -> data view)", () => {
+  const cases: Array<[PollState, PollState, PollDataAction]> = [
+    ["offline", "polling", "begin"],
+    ["paused", "polling", "begin"],
+    ["polling", "timeout", "markStale"],
+    ["polling", "exception", "markStale"],
+    ["polling", "badResponse", "markStale"],
+    ["timeout", "exception", "markStale"],
+    ["timeout", "polling", "none"],
+    ["exception", "polling", "none"],
+    ["polling", "polling", "none"],
+    ["polling", "paused", "markStale"],
+    ["timeout", "paused", "markStale"],
+    ["polling", "offline", "markStale"],
+    ["paused", "offline", "markStale"],
+    ["offline", "paused", "markStale"],
+    ["paused", "paused", "none"],
+    ["offline", "offline", "none"],
+    ["offline", "timeout", "markStale"],
+  ];
+  it.each(cases)("%s -> %s is %s", (prev, next, action) => {
+    expect(pollDataActionFor(prev, next)).toBe(action);
+  });
+});
+
+describe("connectionClearsData", () => {
+  const cases: Array<[ConnectionState, ConnectionState, boolean]> = [
+    ["connected", "idle", true],
+    ["disconnected", "idle", true],
+    ["connecting", "idle", true],
+    ["idle", "idle", false],
+    ["connected", "disconnected", false],
+    ["disconnected", "connecting", false],
+    ["idle", "connecting", false],
+  ];
+  it.each(cases)("%s -> %s is %s", (prev, next, clears) => {
+    expect(connectionClearsData(prev, next)).toBe(clears);
+  });
+});
+
+describe("definitionChangeAction (PT6, PT6b)", () => {
+  const changed = { ...def, quantity: 9 };
+  it("a running poll restarts and shows loading", () => {
+    for (const s of ["polling", "timeout", "exception", "badResponse"] as const) {
+      expect(definitionChangeAction(def, changed, s)).toBe("begin");
     }
-    expect(act("connected", "disconnected", false)).toBe("markStale");
-    expect(act("paused", "disconnected", false)).toBe("markStale");
   });
-
-  it("clears on idle and when a new connection attempt starts", () => {
-    for (const from of SESSION_STATES as readonly SessionState[]) {
-      expect(act(from, "idle", false)).toBe("clear");
-    }
-    expect(act("disconnected", "connecting", false)).toBe("clear");
-    expect(act("idle", "connecting", false)).toBe("clear");
+  it("a paused or offline poll clears its values", () => {
+    expect(definitionChangeAction(def, changed, "paused")).toBe("clear");
+    expect(definitionChangeAction(def, changed, "offline")).toBe("clear");
   });
+  it("an unchanged definition does nothing", () => {
+    expect(definitionChangeAction(def, { ...def }, "polling")).toBe("none");
+  });
+});
 
-  it("does nothing when the link comes up", () => {
-    expect(act("connecting", "connected", false)).toBe("none");
+describe("helpers", () => {
+  it("matchesDefinition compares slave, function, start and length", () => {
+    expect(matchesDefinition(def, update())).toBe(true);
+    expect(matchesDefinition(def, update({ slaveId: 2 }))).toBe(false);
+    expect(matchesDefinition(def, update({ function: 4 }))).toBe(false);
+    expect(matchesDefinition(def, update({ startAddress: 1 }))).toBe(false);
+    expect(matchesDefinition(def, update({ values: [1, 2] }))).toBe(false);
+  });
+  it("sameDefinition and kindOf", () => {
+    expect(sameDefinition(def, { ...def })).toBe(true);
+    expect(sameDefinition(def, { ...def, scanRateMs: 50 })).toBe(false);
+    expect(kindOf(1)).toBe("bits");
+    expect(kindOf(2)).toBe("bits");
+    expect(kindOf(3)).toBe("registers");
+    expect(kindOf(4)).toBe("registers");
   });
 });

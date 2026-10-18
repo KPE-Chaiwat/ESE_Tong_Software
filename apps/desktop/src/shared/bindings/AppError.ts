@@ -11,6 +11,6 @@ export type AppError = { code: AppErrorCode,
 message: string, 
 /**
  * For `validation`: the offending input field as named in the DTO (for example
- * `timeoutMs`, `slaveId`, `values`), so the UI can focus it. Otherwise null.
+ * `timeoutMs`, `slaveId`, `values`, `name`), so the UI can focus it. Otherwise null.
  */
 field: string | null, };

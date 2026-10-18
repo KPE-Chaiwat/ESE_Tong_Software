@@ -104,6 +104,8 @@ interface AlertDialogProps {
   children: ReactNode;
   /** Selector of the safe button that gets the initial focus. */
   initialFocus: string;
+  /** Content between the description and the buttons, for example a checkbox. */
+  extra?: ReactNode;
 }
 
 /** Small confirm dialog. Initial focus goes to the safe button (DES-001 S5). */
@@ -114,6 +116,7 @@ export function AlertDialog({
   description,
   children,
   initialFocus,
+  extra,
 }: AlertDialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
   const returnFocus = useReturnFocus(open);
@@ -139,6 +142,7 @@ export function AlertDialog({
           <AlertDialogPrimitive.Description className="mt-2 text-sm">
             {description}
           </AlertDialogPrimitive.Description>
+          {extra ? <div className="mt-3">{extra}</div> : null}
           <div className="mt-4 flex justify-end gap-2">{children}</div>
         </AlertDialogPrimitive.Content>
       </AlertDialogPrimitive.Portal>

@@ -38,7 +38,7 @@ export function AppVersion({ load, className }: AppVersionProps) {
   const version = useAppVersion(load);
   if (version === null) return null;
   return (
-    <span data-testid="app-version" className={cn("text-xs", className)}>
+    <span data-testid="app-version" className={cn("shrink-0 whitespace-nowrap text-xs", className)}>
       ESEfact v{version}
     </span>
   );

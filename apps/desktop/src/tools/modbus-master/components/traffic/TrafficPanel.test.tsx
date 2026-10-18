@@ -20,25 +20,37 @@ function frame(seq: number, over: Partial<TrafficFrame> = {}): TrafficFrame {
     function: 3,
     exceptionCode: null,
     note: null,
+    origin: null,
     ...over,
   };
+}
+
+const counters = (requests: number, responses: number, errors: number, timeouts: number) => ({
+  total: { requests, responses, errors, timeouts },
+});
+
+/** Renders the window with the panel expanded. */
+async function expanded(): Promise<void> {
+  h = await renderWindow();
+  await h.act(() => h.rt.stores.workspace.getState().setTrafficExpanded(true));
 }
 
 const panel = () => screen.getByRole("region", { name: "Communication Traffic" });
 const list = () => within(panel()).getByRole("grid", { name: "Frames" });
 const rows = () => within(list()).getAllByRole("row");
 
-describe("traffic panel (task 14)", () => {
+describe("traffic panel", () => {
   it("shows the empty text", async () => {
-    h = await renderWindow();
+    await expanded();
     expect(screen.getByTestId("traffic-empty")).toHaveTextContent(
       "No frames yet. Requests and responses appear here.",
     );
   });
 
-  it("shows the counters", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitCounters({ requests: 1204, responses: 1198, errors: 2, timeouts: 4 }));
+  it("shows the counters of the filter", async () => {
+    await expanded();
+    h.advance(0);
+    await h.act(() => h.ipc.emitCounters(counters(1204, 1198, 2, 4)));
     const p = within(panel());
     expect(p.getByText("1204")).toBeVisible();
     expect(p.getByText("1198")).toBeVisible();
@@ -47,8 +59,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("lists frames with number, time, direction as arrow plus text, length, bytes and info", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2, { bytes: [0, 1, 0xab] })]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2, { bytes: [0, 1, 0xab] })]));
     const [, first, second] = rows();
     expect(first).toHaveTextContent("1");
     expect(first).toHaveTextContent("14:02:11.532");
@@ -61,9 +73,37 @@ describe("traffic panel (task 14)", () => {
     expect(list()).toHaveAttribute("aria-rowcount", "3");
   });
 
+  it("the Poll column shows the poll, or Write: poll, from the frame origin", async () => {
+    await expanded();
+    const id = await h.addPoll("Pump 2");
+    await h.act(() =>
+      h.ipc.emitFrames([
+        frame(1, { origin: { kind: "poll", pollId: id } }),
+        frame(2, { origin: { kind: "write", pollId: id } }),
+        frame(3, { origin: { kind: "write", pollId: null } }),
+      ]),
+    );
+    const [, a, b, c] = rows();
+    expect(
+      within(a as HTMLElement)
+        .getAllByRole("gridcell")
+        .at(-1),
+    ).toHaveTextContent("Pump 2");
+    expect(
+      within(b as HTMLElement)
+        .getAllByRole("gridcell")
+        .at(-1),
+    ).toHaveTextContent("Write: Pump 2");
+    expect(
+      within(c as HTMLElement)
+        .getAllByRole("gridcell")
+        .at(-1),
+    ).toHaveTextContent("Write");
+  });
+
   it("an RX exception frame shows the exception name in Info with an error icon", async () => {
-    h = await renderWindow();
-    h.emit(() =>
+    await expanded();
+    await h.act(() =>
       h.ipc.emitFrames([frame(2, { direction: "rx", bytes: [1, 0x83, 2], exceptionCode: 2 })]),
     );
     const row = rows()[1] as HTMLElement;
@@ -72,9 +112,9 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("selecting a frame shows the detail strip with 16 bytes per line and 4-digit offsets", async () => {
-    h = await renderWindow();
+    await expanded();
     const bytes = Array.from({ length: 20 }, (_, i) => i);
-    h.emit(() => h.ipc.emitFrames([frame(1, { bytes })]));
+    await h.act(() => h.ipc.emitFrames([frame(1, { bytes })]));
     expect(screen.queryByTestId("frame-detail")).not.toBeInTheDocument();
     await h.user.click(rows()[1] as HTMLElement);
     const detail = screen.getByTestId("frame-detail");
@@ -84,16 +124,16 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Copy bytes copies the selected frame as hex", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1, { bytes: [0, 1, 0xab] })]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1, { bytes: [0, 1, 0xab] })]));
     await h.user.click(rows()[1] as HTMLElement);
     await h.user.click(screen.getByRole("button", { name: "Copy bytes" }));
     await waitFor(() => expect(h.copied).toEqual(["00 01 AB"]));
   });
 
   it("Copy copies the one selected frame in the tab separated format (DES-001 5.2)", async () => {
-    h = await renderWindow();
-    h.emit(() =>
+    await expanded();
+    await h.act(() =>
       h.ipc.emitFrames([
         frame(1),
         frame(2, { direction: "rx", exceptionCode: 2, bytes: [1, 0x83, 2] }),
@@ -102,13 +142,13 @@ describe("traffic panel (task 14)", () => {
     await h.user.click(rows()[2] as HTMLElement);
     await h.user.click(within(panel()).getByRole("button", { name: "Copy" }));
     await waitFor(() => expect(h.copied).toHaveLength(1));
-    expect(h.copied[0]).toBe("14:02:11.532\tRX\t01 83 02\tException 02 Illegal data address");
+    expect(h.copied[0]).toBe("14:02:11.532\tRX\t01 83 02\tException 02 Illegal data address\t");
     expect(await screen.findByText("Copied 1 frame.")).toBeVisible();
   });
 
   it("without a selected frame, Copy is disabled and Ctrl+C copies nothing and shows no toast", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2)]));
     expect(within(panel()).getByRole("button", { name: "Copy" })).toBeDisabled();
     list().focus();
     await h.user.keyboard("{Control>}c{/Control}");
@@ -118,8 +158,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Ctrl+C in the list copies the selected frame", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2)]));
     await h.user.click(rows()[2] as HTMLElement);
     await h.user.keyboard("{Control>}c{/Control}");
     await waitFor(() => expect(h.copied).toHaveLength(1));
@@ -129,8 +169,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Ctrl+A in the traffic list selects nothing (single selection, DES-001 5.1)", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2)]));
     await h.user.click(rows()[1] as HTMLElement);
     await h.user.keyboard("{Control>}a{/Control}");
     expect(h.rt.stores.traffic.getState().selectedSeq).toBe(1);
@@ -138,8 +178,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Shift-click and Ctrl-click leave exactly one frame selected", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2), frame(3)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2), frame(3)]));
     await h.user.click(rows()[1] as HTMLElement);
     await h.user.keyboard("{Shift>}");
     await h.user.click(rows()[3] as HTMLElement);
@@ -151,8 +191,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("arrow keys move the frame selection", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1), frame(2), frame(3)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1), frame(2), frame(3)]));
     await h.user.click(rows()[1] as HTMLElement);
     await h.user.keyboard("{ArrowDown}{ArrowDown}");
     expect(h.rt.stores.traffic.getState().selectedSeq).toBe(3);
@@ -165,10 +205,10 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Clear empties the list, keeps the counters and shows the cleared text", async () => {
-    h = await renderWindow();
-    h.emit(() => {
+    await expanded();
+    await h.act(() => {
       h.ipc.emitFrames([frame(1)]);
-      h.ipc.emitCounters({ requests: 5, responses: 4, errors: 0, timeouts: 1 });
+      h.ipc.emitCounters(counters(5, 4, 0, 1));
     });
     await h.user.click(within(panel()).getByRole("button", { name: "Clear" }));
     expect(screen.getByTestId("traffic-empty")).toHaveTextContent(
@@ -178,24 +218,46 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("Ctrl+Shift+K clears the log", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames([frame(1)]));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames([frame(1)]));
     act(() => {
       fireEvent.keyDown(window, { key: "K", ctrlKey: true, shiftKey: true });
     });
     expect(h.rt.stores.traffic.getState().frames.size).toBe(0);
   });
 
-  it("Reset counters calls the backend and zeroes them", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitCounters({ requests: 5, responses: 4, errors: 1, timeouts: 1 }));
+  it("Reset counters calls the backend for the whole connection under All polls", async () => {
+    await expanded();
+    await h.act(() => h.ipc.emitCounters(counters(5, 4, 1, 1)));
     await h.user.click(within(panel()).getByRole("button", { name: "Reset counters" }));
-    await waitFor(() => expect(h.ipc.callsOf("resetCounters")).toHaveLength(1));
-    await waitFor(() => expect(h.rt.stores.traffic.getState().counters.requests).toBe(0));
+    await waitFor(() => expect(h.ipc.callsOf("resetCounters")).toEqual([[null]]));
+  });
+
+  it("the Filter select lists All polls, Writes and the polls in list order, and filters", async () => {
+    await expanded();
+    const a = await h.addPoll("Alpha");
+    const b = await h.addPoll("Beta");
+    const select = within(panel()).getByRole("combobox", { name: "Traffic filter" });
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["All polls", "Writes", "Alpha", "Beta"]);
+    await h.act(() =>
+      h.ipc.emitFrames([
+        frame(1, { origin: { kind: "poll", pollId: a } }),
+        frame(2, { origin: { kind: "poll", pollId: b } }),
+      ]),
+    );
+    await h.user.selectOptions(select, "Beta");
+    expect(rows()).toHaveLength(2);
+    expect(rows()[1]).toHaveTextContent("Beta");
+    await h.user.selectOptions(select, "Writes");
+    expect(screen.getByTestId("traffic-empty")).toHaveTextContent("No frames for Writes yet.");
   });
 
   it("Auto-scroll is on by default and can be switched off", async () => {
-    h = await renderWindow();
+    await expanded();
     const box = screen.getByRole("checkbox", { name: "Auto-scroll" });
     expect(box).toBeChecked();
     await h.user.click(box);
@@ -203,8 +265,8 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("scrolling up turns Auto-scroll off", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames(Array.from({ length: 100 }, (_, i) => frame(i + 1))));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames(Array.from({ length: 100 }, (_, i) => frame(i + 1))));
     const el = list();
     Object.defineProperty(el, "scrollHeight", { configurable: true, value: 2200 });
     Object.defineProperty(el, "clientHeight", { configurable: true, value: 300 });
@@ -217,18 +279,40 @@ describe("traffic panel (task 14)", () => {
   });
 
   it("virtualizes a full log of 5000 frames", async () => {
-    h = await renderWindow();
-    h.emit(() => h.ipc.emitFrames(Array.from({ length: 5001 }, (_, i) => frame(i + 1))));
+    await expanded();
+    await h.act(() => h.ipc.emitFrames(Array.from({ length: 5001 }, (_, i) => frame(i + 1))));
     expect(h.rt.stores.traffic.getState().frames.size).toBe(5000);
     expect(list()).toHaveAttribute("aria-rowcount", "5001");
     expect(rows().length).toBeLessThan(100);
   });
 
-  it("the collapse button toggles the panel body", async () => {
-    h = await renderWindow();
+  it("the collapse button returns to the traffic bar, which keeps the counters", async () => {
+    await expanded();
     await h.user.click(screen.getByRole("button", { name: "Collapse traffic panel" }));
-    expect(within(panel()).queryByRole("grid")).not.toBeInTheDocument();
+    expect(screen.queryByRole("grid", { name: "Frames" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("traffic-bar")).toBeVisible();
     await h.user.click(screen.getByRole("button", { name: "Expand traffic panel" }));
-    expect(within(panel()).getByRole("grid", { name: "Frames" })).toBeVisible();
+    expect(screen.getByRole("grid", { name: "Frames" })).toBeVisible();
+  });
+});
+
+describe("QA hooks (REPORT-003 section 5, item 5)", () => {
+  it("every cell of a frame row names its column with data-cell", async () => {
+    await expanded();
+    const a = await h.addPoll("Pump 2");
+    await h.act(() => h.ipc.emitFrames([frame(1, { origin: { kind: "poll", pollId: a } })]));
+    const row = within(list()).getAllByRole("row")[1] as HTMLElement;
+    const cells = within(row).getAllByRole("gridcell");
+    expect(cells.map((c) => c.getAttribute("data-cell"))).toEqual([
+      "seq",
+      "time",
+      "dir",
+      "len",
+      "bytes",
+      "info",
+      "poll",
+    ]);
+    expect(row.querySelector('[data-cell="poll"]')).toHaveTextContent("Pump 2");
+    expect(row.querySelector('[data-cell="seq"]')).toHaveTextContent("1");
   });
 });

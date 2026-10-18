@@ -6,6 +6,7 @@ import { FreshnessChip } from "./freshness-chip";
 import type { IconName } from "./icon";
 import { StateBanner } from "./state-banner";
 import { StatusPill, type StatusVariant } from "./status-pill";
+import { StatusStrip, type StripTone } from "./status-strip";
 
 function mockReducedMotion(reduced: boolean) {
   vi.stubGlobal(
@@ -33,7 +34,45 @@ const PILLS: [StatusVariant, IconName, string][] = [
   ["exception", "octagon-x", "Exception 02"],
   ["badResponse", "triangle-alert", "Bad response"],
   ["disconnected", "unplug", "Disconnected"],
+  ["offline", "wifi-off", "Offline"],
+  ["waiting", "loader", "Waiting…"],
 ];
+
+describe("StatusPill title and full label", () => {
+  it("carries a tooltip", () => {
+    const { container } = render(
+      <StatusPill
+        variant="timeout"
+        icon="timer-off"
+        label="Timeout"
+        title="Timeout: slave 5 did not respond."
+      />,
+    );
+    expect(container.firstElementChild).toHaveAttribute(
+      "title",
+      "Timeout: slave 5 did not respond.",
+    );
+  });
+
+  it("a short label is hidden from assistive technology and the full label is its name", () => {
+    render(
+      <StatusPill variant="exception" icon="octagon-x" label="Exc 02" fullLabel="Exception 02" />,
+    );
+    expect(screen.getByText("Exc 02")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByText("Exception 02")).toHaveClass("sr-only");
+  });
+
+  it("without a full label the text is the name", () => {
+    render(<StatusPill variant="paused" icon="pause" label="Paused" />);
+    expect(screen.getByText("Paused")).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("an icon-less pill is allowed (the summary chip with no polls)", () => {
+    const { container } = render(<StatusPill variant="paused" icon={null} label="No polls" />);
+    expect(container.querySelector("svg")).toBeNull();
+    expect(screen.getByText("No polls")).toBeVisible();
+  });
+});
 
 describe("StatusPill", () => {
   it.each(PILLS)("%s shows both its icon and its text label", (variant, icon, label) => {
@@ -54,6 +93,15 @@ describe("StatusPill", () => {
       expect(container.querySelector("svg")?.getAttribute("class")).toContain("text-error");
     },
   );
+
+  it("the compact size is smaller than the default", () => {
+    const { container: a } = render(
+      <StatusPill variant="paused" icon="pause" label="P" size="sm" />,
+    );
+    const { container: b } = render(<StatusPill variant="paused" icon="pause" label="P" />);
+    expect(a.firstElementChild?.className).toContain("h-6");
+    expect(b.firstElementChild?.className).toContain("h-7");
+  });
 
   it("uses dark text on the warning and success fills", () => {
     const { container: a } = render(<StatusPill variant="timeout" icon="timer-off" label="T" />);
@@ -189,5 +237,25 @@ describe("loader and reduced motion", () => {
     for (const el of container.querySelectorAll('[data-icon="loader"]')) {
       expect(el.getAttribute("class")).not.toContain("animate-spin");
     }
+  });
+});
+
+describe("StatusStrip", () => {
+  it.each([
+    ["none", "bg-card"],
+    ["warning", "bg-warning"],
+    ["error", "bg-error-tint"],
+    ["neutral", "bg-neutral-tint"],
+  ] as const satisfies ReadonlyArray<readonly [StripTone, string]>)("%s tone", (tone, cls) => {
+    const { container } = render(<StatusStrip tone={tone}>text</StatusStrip>);
+    expect(container.firstElementChild).toHaveAttribute("data-tone", tone);
+    expect(container.firstElementChild?.className).toContain(cls);
+  });
+
+  it("keeps the text dark: never text on a solid error fill", () => {
+    const { container } = render(<StatusStrip tone="error">x</StatusStrip>);
+    expect(container.firstElementChild?.className.split(" ")).not.toContain("bg-error");
+    const { container: warn } = render(<StatusStrip tone="warning">x</StatusStrip>);
+    expect(warn.firstElementChild?.className).toContain("text-dark");
   });
 });

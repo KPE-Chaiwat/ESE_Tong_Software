@@ -17,10 +17,11 @@
   "overrides": [
     {
       "includes": [
-        "src/tools/modbus-master/components/data/DataTable.tsx",
         "src/tools/modbus-master/components/traffic/TrafficPanel.tsx",
-        "src/tools/modbus-master/components/shell/Splitter.tsx",
+        "src/tools/modbus-master/components/shell/ResizeSeparator.tsx",
         "src/tools/modbus-master/components/ColumnResizeHandle.tsx",
+        "src/tools/modbus-master/components/poll-view/DataGrid.tsx",
+        "src/tools/modbus-master/components/poll-view/ScaledCellView.tsx",
         "src/shared/ui/segmented.tsx"
       ],
       "linter": {

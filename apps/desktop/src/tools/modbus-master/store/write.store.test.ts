@@ -5,6 +5,7 @@ import {
 } from "@/shared/ipc/modbus-master.fake";
 import type {
   AddressBase,
+  PollConfig,
   PollDefinition,
   ValueFormat,
   WriteRequest,
@@ -18,19 +19,34 @@ let base: AddressBase;
 let format: ValueFormat;
 let linkUp: boolean;
 let poll: PollDefinition;
+let present: boolean;
+const POLL_ID = 7;
 const get = () => store.getState();
+
+function config(): PollConfig {
+  return {
+    pollId: POLL_ID,
+    name: "Tank 1",
+    definition: poll,
+    active: true,
+    display: { format, addressBase: base, showAlias: true, copyAlias: false },
+    scale: null,
+    scaleOverrides: [],
+    valueColumns: "raw",
+    aliases: [],
+  };
+}
 
 beforeEach(() => {
   ipc = createFakeModbusMasterIpc();
   base = 0;
   format = "unsigned";
   linkUp = true;
+  present = true;
   poll = { slaveId: 3, function: 3, startAddress: 0, quantity: 10, scanRateMs: 1000 };
   store = createWriteStore({
     ipc,
-    getAddressBase: () => base,
-    getTableFormat: () => format,
-    getPoll: () => poll,
+    getConfig: (id) => (present && id === POLL_ID ? config() : null),
     isLinkUp: () => linkUp,
   });
 });
@@ -39,6 +55,7 @@ describe("initial state", () => {
   it("is closed and idle with function 06 remembered", () => {
     expect(get()).toMatchObject({
       open: false,
+      pollId: null,
       status: "idle",
       result: null,
       lastFunction: 6,
@@ -49,16 +66,16 @@ describe("initial state", () => {
 
 describe("openFor prefill (DES-001 S2)", () => {
   it("an FC01 row prefills function 05 with the coil state", () => {
-    get().openFor({ address: 7, pollFunction: 1, slaveId: 2, raw: 1 });
+    get().openFor(POLL_ID, { address: 7, pollFunction: 1, slaveId: 2, raw: 1 });
     expect(get().open).toBe(true);
     expect(get().draft).toMatchObject({ function: "5", slaveId: "2", address: "7", coil: true });
-    get().openFor({ address: 7, pollFunction: 1, slaveId: 2, raw: 0 });
+    get().openFor(POLL_ID, { address: 7, pollFunction: 1, slaveId: 2, raw: 0 });
     expect(get().draft.coil).toBe(false);
   });
 
   it("an FC03 row prefills function 06 with the raw value in the table format", () => {
     format = "hex";
-    get().openFor({ address: 100, pollFunction: 3, slaveId: 1, raw: 1234 });
+    get().openFor(POLL_ID, { address: 100, pollFunction: 3, slaveId: 1, raw: 1234 });
     expect(get().draft).toMatchObject({
       function: "6",
       address: "100",
@@ -69,7 +86,7 @@ describe("openFor prefill (DES-001 S2)", () => {
 
   it("closes up the nibble spaces of a binary value in the list box (REV-002 m6)", () => {
     format = "binary";
-    get().openFor({ address: 0, pollFunction: 3, slaveId: 1, raw: 0x04d2 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 3, slaveId: 1, raw: 0x04d2 });
     expect(get().draft.valueText).toBe("0000 0100 1101 0010");
     expect(get().draft.valuesText).toBe("0000010011010010");
     get().updateDraft({ function: "16" });
@@ -78,40 +95,40 @@ describe("openFor prefill (DES-001 S2)", () => {
 
   it("uses the display base for the address", () => {
     base = 1;
-    get().openFor({ address: 100, pollFunction: 3, slaveId: 1, raw: 5 });
+    get().openFor(POLL_ID, { address: 100, pollFunction: 3, slaveId: 1, raw: 5 });
     expect(get().draft.address).toBe("101");
   });
 
   it("uses the last used function for FC02 and FC04", () => {
-    get().openFor({ address: 0, pollFunction: 4, slaveId: 1 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 4, slaveId: 1 });
     expect(get().draft.function).toBe("6");
     get().updateDraft({ function: "16", valuesText: "1 2" });
     return get()
       .send()
       .then(() => {
         get().close();
-        get().openFor({ address: 0, pollFunction: 2, slaveId: 1 });
+        get().openFor(POLL_ID, { address: 0, pollFunction: 2, slaveId: 1 });
         expect(get().draft.function).toBe("16");
       });
   });
 
   it("without a prefill uses the poll slave and the last function", () => {
-    get().openFor();
+    get().openFor(POLL_ID);
     expect(get().draft).toMatchObject({ function: "6", slaveId: "3", address: "0" });
   });
 
   it("resets the result, status and shown errors each time it opens", async () => {
-    get().openFor({ address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
     await get().send();
     expect(get().result).not.toBeNull();
-    get().openFor({ address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
     expect(get()).toMatchObject({ status: "idle", result: null, submitted: false, touched: {} });
   });
 });
 
 describe("updateDraft and touch", () => {
   it("merges the patch and keeps the result until the next send (DES-001 2.5)", async () => {
-    get().openFor({ address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
     await get().send();
     expect(get().status).toBe("done");
     get().updateDraft({ valueText: "5" });
@@ -120,7 +137,7 @@ describe("updateDraft and touch", () => {
   });
 
   it("clearResult empties the result area but not while a write is in flight", async () => {
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     await get().send();
     get().clearResult();
@@ -135,7 +152,7 @@ describe("updateDraft and touch", () => {
 
   it("remembers the field the backend named in a validation rejection", async () => {
     ipc.failNext("write", new IpcError("Slave id out of range", "validation", "slaveId"));
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     await get().send();
     expect(get()).toMatchObject({ ipcError: "Slave id out of range", ipcErrorField: "slaveId" });
@@ -144,7 +161,7 @@ describe("updateDraft and touch", () => {
   });
 
   it("remembers touched fields", () => {
-    get().openFor();
+    get().openFor(POLL_ID);
     get().touch("address");
     expect(get().touched).toEqual({ address: true });
   });
@@ -152,7 +169,7 @@ describe("updateDraft and touch", () => {
 
 describe("send", () => {
   it("validates before sending and shows every error", async () => {
-    get().openFor({ address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
+    get().openFor(POLL_ID, { address: 0, pollFunction: 3, slaveId: 1, raw: 1 });
     get().updateDraft({ valueText: "70000" });
     await get().send();
     expect(ipc.callsOf("write")).toHaveLength(0);
@@ -161,7 +178,7 @@ describe("send", () => {
   });
 
   it("rejects 124 values for FC16 without sending", async () => {
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({
       function: "16",
       valuesText: Array.from({ length: 124 }, () => "1").join(" "),
@@ -171,18 +188,18 @@ describe("send", () => {
   });
 
   it("sends the parsed request and stores a confirmed result", async () => {
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ function: "16", slaveId: "1", address: "100", valuesText: "10 20 30" });
     await get().send();
     const expected: WriteRequest = { slaveId: 1, function: 16, address: 100, values: [10, 20, 30] };
-    expect(ipc.callsOf("write")).toEqual([[expected]]);
+    expect(ipc.callsOf("write")).toEqual([[expected, POLL_ID]]);
     expect(get()).toMatchObject({ status: "done", result: { status: "ok" }, lastFunction: 16 });
     expect(get().request).toEqual(expected);
   });
 
   it("goes through sending and ignores a second send while in flight", async () => {
     const held = ipc.hold("write");
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     const p = get().send();
     expect(get().status).toBe("sending");
@@ -201,7 +218,7 @@ describe("send", () => {
     [{ status: "notConnected" }],
   ] as const)("stores the backend result %j", async (result) => {
     ipc.setResult("write", result);
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     await get().send();
     expect(get().result).toEqual(result);
@@ -210,7 +227,7 @@ describe("send", () => {
 
   it("closing during sending drops the late result", async () => {
     const held = ipc.hold("write");
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     const p = get().send();
     get().close();
@@ -221,11 +238,11 @@ describe("send", () => {
 
   it("re-opening during sending also drops the old result", async () => {
     const held = ipc.hold("write");
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     const p = get().send();
     get().close();
-    get().openFor();
+    get().openFor(POLL_ID);
     held.release({ status: "ok" });
     await p;
     expect(get().result).toBeNull();
@@ -234,7 +251,7 @@ describe("send", () => {
 
   it("records a rejected command as an error text", async () => {
     ipc.failNext("write", "Slave ID out of range");
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     await get().send();
     expect(get()).toMatchObject({
@@ -251,7 +268,7 @@ describe("send", () => {
 
   it("answers notConnected locally when the link is down", async () => {
     linkUp = false;
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ valueText: "5" });
     await get().send();
     expect(ipc.callsOf("write")).toHaveLength(0);
@@ -259,39 +276,40 @@ describe("send", () => {
   });
 
   it("slave 0 on RTU is a broadcast: broadcastSent", async () => {
-    ipc.snapshot = {
-      ...ipc.snapshot,
-      config: {
-        mode: "rtu",
-        port: "COM3",
-        baud: 9600,
-        dataBits: 8,
-        parity: "even",
-        stopBits: 1,
-        timeoutMs: 1000,
-      },
-    };
-    get().openFor();
+    await ipc.connect({
+      mode: "rtu",
+      port: "COM3",
+      baud: 9600,
+      dataBits: 8,
+      parity: "even",
+      stopBits: 1,
+      timeoutMs: 1000,
+    });
+    get().openFor(POLL_ID);
     get().updateDraft({ slaveId: "0", valueText: "5" });
     await get().send();
     expect(get().result).toEqual({ status: "broadcastSent" });
   });
 
   it("slave 0 on TCP is a normal unit: the write is confirmed", async () => {
-    ipc.snapshot = {
-      ...ipc.snapshot,
-      config: { mode: "tcp", host: "h", port: 502, timeoutMs: 1000 },
-    };
-    get().openFor();
+    await ipc.connect({ mode: "tcp", host: "h", port: 502, timeoutMs: 1000 });
+    get().openFor(POLL_ID);
     get().updateDraft({ slaveId: "0", valueText: "5" });
     await get().send();
     expect(get().result).toEqual({ status: "ok" });
     expect(get().request).toMatchObject({ slaveId: 0 });
   });
 
+  it("sends the poll the write is made from, so traffic shows Write: {poll name}", async () => {
+    get().openFor(POLL_ID);
+    get().updateDraft({ address: "3", valueText: "9" });
+    await get().send();
+    expect(ipc.callsOf("write")[0]?.[1]).toBe(POLL_ID);
+  });
+
   it("keeps the draft after a linkLost result", async () => {
     ipc.setResult("write", { status: "linkLost" });
-    get().openFor();
+    get().openFor(POLL_ID);
     get().updateDraft({ address: "3", valueText: "9" });
     await get().send();
     expect(get().result).toEqual({ status: "linkLost" });

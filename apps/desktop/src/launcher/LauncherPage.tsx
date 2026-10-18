@@ -69,19 +69,22 @@ export function LauncherPage({
   loadAppInfo = getAppInfo,
 }: LauncherPageProps) {
   return (
-    <main className="mx-auto flex min-h-full max-w-5xl flex-col gap-8 p-8">
-      <header>
-        <h1 className="text-3xl font-bold">ESEfact</h1>
-        <p className="text-muted-foreground">Choose a tool to open.</p>
-      </header>
-      <section aria-label="Tools" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {manifests.map((manifest) => (
-          <ToolCard key={manifest.id} manifest={manifest} onOpen={onOpen} />
-        ))}
-      </section>
-      <footer className="mt-auto">
-        <AppVersion load={loadAppInfo} className="text-muted-foreground" />
-      </footer>
-    </main>
+    // The page never scrolls (REPORT-007 D6): a tall launcher scrolls inside this box.
+    <div className="h-full overflow-y-auto">
+      <main className="mx-auto flex min-h-full max-w-5xl flex-col gap-8 p-8">
+        <header>
+          <h1 className="text-3xl font-bold">ESEfact</h1>
+          <p className="text-muted-foreground">Choose a tool to open.</p>
+        </header>
+        <section aria-label="Tools" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          {manifests.map((manifest) => (
+            <ToolCard key={manifest.id} manifest={manifest} onOpen={onOpen} />
+          ))}
+        </section>
+        <footer className="mt-auto">
+          <AppVersion load={loadAppInfo} className="text-muted-foreground" />
+        </footer>
+      </main>
+    </div>
   );
 }

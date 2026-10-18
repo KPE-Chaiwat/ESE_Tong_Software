@@ -1,403 +1,564 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { IpcError } from "@/shared/ipc/modbus-master";
-import { sessionReason } from "@/shared/ipc/modbus-master.fake";
-import type { ReadFunction, WriteResult } from "@/shared/ipc/modbus-master.types";
+// The Write dialog from poll views (FE-002 task 22, DES-001 S2, DES-002 3.3): opened from a
+// sub-window of W1 and from a native poll window, both against the IPC fake.
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import type { ConnectionConfig, PollConfigInput, PollId } from "@/shared/ipc/modbus-master.types";
+import { clickWithLayoutShift } from "@/shared/lib/press-test-utils";
+import {
+  disposeNativeHarnesses,
+  type NativeHarness,
+  renderNativeWindow,
+} from "../native/test-utils";
 import { type Harness, renderWindow, TCP } from "../test-utils";
 
+const RTU: ConnectionConfig = {
+  mode: "rtu",
+  port: "COM3",
+  baud: 9600,
+  dataBits: 8,
+  parity: "even",
+  stopBits: 1,
+  timeoutMs: 1000,
+};
+
 let h: Harness;
+let n: NativeHarness;
 
 afterEach(() => {
   h?.rt.dispose();
+  disposeNativeHarnesses();
 });
 
-async function connected(fn: ReadFunction | "rtu" = 3, viaConnect = false) {
-  h = await renderWindow({
-    prepare: ({ rt }) => {
-      rt.stores.config.getState().setConnection(
-        fn === "rtu"
-          ? {
-              mode: "rtu",
-              port: "COM3",
-              baud: 9600,
-              dataBits: 8,
-              parity: "even",
-              stopBits: 1,
-              timeoutMs: 1000,
-            }
-          : TCP,
-      );
-      rt.stores.config.getState().setAutoStart(false);
-      rt.stores.config.getState().setPoll({
-        slaveId: 1,
-        function: fn === "rtu" ? 3 : fn,
-        startAddress: 100,
-        quantity: 3,
-        scanRateMs: 1000,
-      });
-    },
+const frame = (id: PollId) =>
+  document.querySelector<HTMLElement>(`[data-subwindow="${id}"]`) as HTMLElement;
+const grid = (id: PollId) => within(frame(id)).getByRole("grid");
+const dialog = () => screen.getByRole("dialog");
+const result = () => screen.getByTestId("write-result");
+
+const POLL: Partial<PollConfigInput> = {
+  definition: { slaveId: 5, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
+};
+
+/** A connected window with one polling poll "Pump 2" whose rows have values. */
+async function connected(patch: Partial<PollConfigInput> = POLL): Promise<PollId> {
+  h = await renderWindow();
+  const id = await h.addPoll("Pump 2", patch);
+  await h.connect();
+  h.advance(300);
+  return id;
+}
+
+/** Ctrl+E with the keyboard focus in the grid of the sub-window. */
+function ctrlE(id: PollId) {
+  grid(id).focus();
+  fireEvent.keyDown(grid(id), { key: "e", ctrlKey: true });
+}
+
+/** Clicks the grid row of `address` so it is the focused row. */
+async function focusRow(id: PollId, address: number) {
+  const row = within(grid(id))
+    .getAllByRole("row")
+    .find((r) => r.getAttribute("data-row") === String(address));
+  if (!row) throw new Error(`no row ${address}`);
+  await h.user.click(row);
+}
+
+describe("opening from a sub-window (DES-002 3.3)", () => {
+  it("Enter on the focused row opens 'Write · {poll name}', prefilled from the poll and the row", async () => {
+    const id = await connected();
+    await focusRow(id, 3);
+    const raw = within(grid(id))
+      .getAllByRole("row")
+      .find((r) => r.getAttribute("data-row") === "3")
+      ?.querySelector('[data-cell="raw"]')?.textContent;
+    expect(raw).toMatch(/^[0-9]+$/);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Function")).toHaveValue("6");
+    expect(within(d).getByLabelText("Slave ID")).toHaveValue("5");
+    expect(within(d).getByLabelText("Start address")).toHaveValue("3");
+    expect(within(d).getByLabelText("Value")).toHaveValue(raw);
   });
-  if (viaConnect) {
-    // A real Connect, so the session remembers the connection it opened.
-    await act(async () => {
-      await h.rt.controller.connect();
+
+  it("a double click on a row opens it, on the alias cell it edits the alias instead", async () => {
+    const id = await connected();
+    const row = within(grid(id))
+      .getAllByRole("row")
+      .find((r) => r.getAttribute("data-row") === "2") as HTMLElement;
+    fireEvent.doubleClick(row.querySelector('[data-cell="raw"]') as HTMLElement);
+    expect(await screen.findByRole("dialog", { name: "Write · Pump 2" })).toBeVisible();
+  });
+
+  it("an FC01 row prefills function 05 with the coil state", async () => {
+    const id = await connected({
+      definition: { slaveId: 1, function: 1, startAddress: 0, quantity: 8, scanRateMs: 100 },
     });
-  }
-  h.state("connecting");
-  h.state("connected");
-}
-
-async function openDialog() {
-  await h.user.click(screen.getByRole("button", { name: "Write…" }));
-  return screen.findByRole("dialog", { name: "Write" });
-}
-
-const result = (dialog: HTMLElement) => within(dialog).getByTestId("write-result");
-
-async function writeFc16(dialog: HTMLElement, values = "10 20 30") {
-  await h.user.selectOptions(within(dialog).getByLabelText("Function"), "16");
-  const box = within(dialog).getByLabelText(/^Values/);
-  await h.user.clear(box);
-  // Paste instead of typing: a 124 value list would take thousands of keystrokes.
-  await h.user.click(box);
-  await h.user.paste(values);
-}
-
-describe("Write dialog (task 15)", () => {
-  it("opens from the toolbar with the poll slave and the last used function", async () => {
-    await connected();
-    const dialog = await openDialog();
-    expect(within(dialog).getByLabelText("Function")).toHaveValue("6");
-    expect(within(dialog).getByLabelText("Slave ID")).toHaveValue("1");
-    expect(within(dialog).getByLabelText("Start address")).toHaveValue("100");
-    expect(within(dialog).getByText("(protocol address 100)")).toBeVisible();
+    await focusRow(id, 1);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog");
+    expect(within(d).getByLabelText("Function")).toHaveValue("5");
   });
 
-  it("Ctrl+E opens it and the first field has the focus", async () => {
-    await connected();
-    act(() => {
-      fireEvent.keyDown(window, { key: "e", ctrlKey: true });
+  it("Ctrl+E with the focus in the sub-window opens it prefilled from the focused row", async () => {
+    const id = await connected();
+    await focusRow(id, 4);
+    ctrlE(id);
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Start address")).toHaveValue("4");
+  });
+
+  it("without a focused row it uses the start of the poll", async () => {
+    const id = await connected({
+      definition: { slaveId: 5, function: 3, startAddress: 20, quantity: 10, scanRateMs: 100 },
     });
-    const dialog = await screen.findByRole("dialog", { name: "Write" });
-    await waitFor(() => expect(within(dialog).getByLabelText("Function")).toHaveFocus());
+    await h.act(() => h.rt.views.get(id).hostActions.write?.(null));
+    const d = await screen.findByRole("dialog");
+    expect(within(d).getByLabelText("Start address")).toHaveValue("20");
   });
 
-  it("is not available without a link", async () => {
+  it("the status line menu has Write… with Ctrl+E", async () => {
+    const id = await connected();
+    await h.user.click(within(frame(id)).getByRole("button", { name: "Poll actions" }));
+    const item = screen.getByRole("menuitem", { name: /^Write/ });
+    expect(item).toHaveTextContent("Ctrl+E");
+    await h.user.click(item);
+    expect(await screen.findByRole("dialog", { name: "Write · Pump 2" })).toBeVisible();
+  });
+
+  it("an FC04 poll opens with Ctrl+E (function 06) but Enter on a row shows the read-only toast", async () => {
+    const id = await connected({
+      definition: { slaveId: 1, function: 4, startAddress: 0, quantity: 10, scanRateMs: 100 },
+    });
+    await focusRow(id, 1);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    expect(
+      await screen.findByText("Discrete inputs and input registers are read-only."),
+    ).toBeVisible();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    expect(within(d).getByLabelText("Function")).toHaveValue("6");
+  });
+
+  it("does not open while the link is down", async () => {
     h = await renderWindow();
-    expect(screen.queryByRole("button", { name: "Write…" })).not.toBeInTheDocument();
-    act(() => {
-      fireEvent.keyDown(window, { key: "e", ctrlKey: true });
-    });
+    const id = await h.addPoll("Pump 2", POLL);
+    await h.act(async () => h.rt.views.get(id).hostActions.write?.(null));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows the fields for each function", async () => {
+  it("Ctrl+E does nothing when the focus is outside every sub-window", async () => {
     await connected();
-    const dialog = await openDialog();
-    const fn = within(dialog).getByLabelText("Function");
-    expect(within(dialog).getByLabelText("Value")).toBeVisible();
-    await h.user.selectOptions(fn, "5");
-    expect(within(dialog).getByRole("radio", { name: "ON" })).toBeChecked();
-    expect(
-      within(dialog).queryByRole("radiogroup", { name: "Value format" }),
-    ).not.toBeInTheDocument();
-    await h.user.selectOptions(fn, "15");
-    expect(within(dialog).getByText(/^Values \(/)).toBeVisible();
-    expect(
-      within(dialog).queryByRole("radiogroup", { name: "Value format" }),
-    ).not.toBeInTheDocument();
-    await h.user.selectOptions(fn, "16");
-    expect(within(dialog).getByRole("radiogroup", { name: "Value format" })).toBeVisible();
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document.body, { key: "e", ctrlKey: true });
+    await h.act(async () => {});
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
-  it("shows the live value count and the written address range", async () => {
-    await connected();
-    const dialog = await openDialog();
-    await writeFc16(dialog, "10 20 30");
-    expect(within(dialog).getByText("Values (3)")).toBeVisible();
-    expect(within(dialog).getByText("Writes addresses 100-102.")).toBeVisible();
-    expect(
-      within(dialog).getByText("Separate values with spaces, commas, tabs or new lines."),
-    ).toBeVisible();
+  it("focus returns to the grid of the sub-window after Esc", async () => {
+    const id = await connected();
+    await focusRow(id, 1);
+    grid(id).focus();
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    await screen.findByRole("dialog");
+    await h.user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(grid(id)).toHaveFocus();
+  });
+});
+
+describe("sending (DES-001 2.5)", () => {
+  it("sends the request with the poll id and shows the confirmed text", async () => {
+    const id = await connected();
+    await focusRow(id, 3);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog");
+    const value = within(d).getByLabelText("Value");
+    await h.user.clear(value);
+    await h.user.type(value, "77");
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    expect(within(result()).getByText("Writing…")).toBeVisible();
+    h.advance(50);
+    await waitFor(() =>
+      expect(result()).toHaveTextContent("Write confirmed by slave 5: register at 3."),
+    );
+    expect(h.ipc.callsOf("write")).toEqual([
+      [{ slaveId: 5, function: 6, address: 3, values: [77] }, id],
+    ]);
+    // The dialog stays open so the same write can be repeated.
+    expect(dialog()).toBeVisible();
   });
 
-  it("124 values show the count message and send nothing", async () => {
-    await connected();
-    const dialog = await openDialog();
-    await writeFc16(dialog, Array.from({ length: 124 }, () => "1").join(" "));
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    expect(within(dialog).getByText("Enter from 1 to 123 values (you entered 124).")).toBeVisible();
+  it("the traffic of the write is tagged with the poll: 'Write: Pump 2'", async () => {
+    const id = await connected();
+    await focusRow(id, 3);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog");
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    h.advance(50);
+    await waitFor(() => expect(result()).toHaveTextContent("Write confirmed"));
+    const frames = h.rt.stores.traffic.getState().visible();
+    const labels = Array.from({ length: frames.size }, (_, i) => frames.get(i)).flatMap((f) =>
+      f?.origin?.kind === "write" ? [f.origin.pollId] : [],
+    );
+    expect(labels.length).toBeGreaterThan(0);
+    expect(labels.every((p) => p === id)).toBe(true);
+    expect(h.rt.stores.traffic.getState().pollNames[id]).toBe("Pump 2");
+  });
+
+  it("an invalid value shows its message and sends nothing", async () => {
+    const id = await connected();
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const value = within(d).getByLabelText("Value");
+    await h.user.clear(value);
+    await h.user.type(value, "70000");
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    expect(within(d).getByText("Value must be from 0 to 65535.")).toBeVisible();
     expect(h.ipc.callsOf("write")).toHaveLength(0);
   });
 
-  it("shows the first bad item with its message", async () => {
-    await connected();
-    const dialog = await openDialog();
-    await writeFc16(dialog, "1 70000 3");
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    expect(
-      within(dialog).getByText('Value 2 ("70000") is not valid: Value must be from 0 to 65535.'),
-    ).toBeVisible();
-  });
-
-  it("an invalid single value is reported on blur", async () => {
-    await connected();
-    const dialog = await openDialog();
-    const value = within(dialog).getByLabelText("Value");
-    await h.user.clear(value);
-    await h.user.type(value, "99999");
-    await h.user.tab();
-    expect(within(dialog).getByText("Value must be from 0 to 65535.")).toBeVisible();
-    expect(value).toHaveAttribute("aria-invalid", "true");
-  });
-
-  it("sends a confirmed write and shows the success text, staying open", async () => {
-    await connected();
-    const dialog = await openDialog();
-    await writeFc16(dialog);
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent(
-        "Write confirmed by slave 1: 3 registers at 100-102.",
-      ),
-    );
-    expect(h.ipc.callsOf("write")).toEqual([
-      [{ slaveId: 1, function: 16, address: 100, values: [10, 20, 30] }],
-    ]);
-    expect(screen.getByRole("dialog", { name: "Write" })).toBeVisible();
-    expect(result(dialog).querySelector('[data-icon="circle-check"]')).toBeInTheDocument();
-  });
-
-  it("Enter sends from a single line field; Ctrl+Enter sends from the values box", async () => {
-    await connected();
-    const dialog = await openDialog();
-    const value = within(dialog).getByLabelText("Value");
-    await h.user.clear(value);
-    await h.user.type(value, "7{Enter}");
-    await waitFor(() => expect(h.ipc.callsOf("write")).toHaveLength(1));
-    await h.user.selectOptions(within(dialog).getByLabelText("Function"), "16");
-    const box = within(dialog).getByLabelText(/^Values/);
-    await h.user.type(box, "1 2{Enter}");
-    expect(h.ipc.callsOf("write")).toHaveLength(1);
-    expect(box).toHaveValue("1 2\n");
-    await h.user.keyboard("{Control>}{Enter}{/Control}");
-    await waitFor(() => expect(h.ipc.callsOf("write")).toHaveLength(2));
-  });
-
-  it("Esc closes the dialog", async () => {
-    await connected();
-    await openDialog();
-    await h.user.keyboard("{Escape}");
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-  });
-
-  it("shows Writing… while sending and disables Send", async () => {
-    await connected();
-    const held = h.ipc.hold("write");
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(result(dialog)).toHaveTextContent("Writing…"));
-    expect(within(dialog).getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(within(dialog).getByRole("button", { name: "Close" })).toBeEnabled();
-    await act(async () => held.release({ status: "ok" }));
-    await waitFor(() => expect(result(dialog)).toHaveTextContent("Write confirmed"));
-  });
-
-  it("closing while sending drops the late result", async () => {
-    await connected();
-    const held = h.ipc.hold("write");
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await h.user.click(within(dialog).getByRole("button", { name: "Close" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    await act(async () => held.release({ status: "ok" }));
-    const reopened = await openDialog();
-    expect(result(reopened)).toBeEmptyDOMElement();
-  });
-
-  it.each<[WriteResult, string, string]>([
-    [
-      { status: "broadcastSent" },
-      "Broadcast sent. Devices do not reply to slave ID 0, so the write cannot be confirmed.",
-      "circle-check",
-    ],
-    [
-      { status: "exception", code: 2 },
-      "Exception 02 (Illegal data address). Nothing was confirmed.",
-      "octagon-x",
-    ],
-    [
-      { status: "timeout" },
-      "No response within 1000 ms. The write may or may not have been applied.",
-      "timer-off",
-    ],
-    [
-      { status: "badResponse", kind: "crc", detail: { expected: null, got: null, message: "" } },
-      "Bad response: CRC mismatch. The write may or may not have been applied.",
-      "triangle-alert",
-    ],
-  ])("shows the result %j", async (backendResult, text, icon) => {
-    await connected();
-    h.ipc.setResult("write", backendResult);
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(result(dialog)).toHaveTextContent(text));
-    expect(result(dialog).querySelector(`[data-icon="${icon}"]`)).toBeInTheDocument();
-  });
-
-  it("error results do not use text on a solid error fill", async () => {
-    await connected();
+  it("an exception result has its text", async () => {
+    const id = await connected();
     h.ipc.setResult("write", { status: "exception", code: 2 });
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(result(dialog)).toHaveTextContent("Exception 02"));
-    const chip = result(dialog).querySelector("p") as HTMLElement;
-    expect(chip.className).toContain("bg-error-tint");
-    expect(chip.className).not.toMatch(/\bbg-error(?![-\w])/);
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(result()).toHaveTextContent(
+        "Exception 02 (Illegal data address). Nothing was confirmed.",
+      ),
+    );
   });
 
-  const BROADCAST = "Broadcast: devices do not reply, so the result cannot be confirmed.";
-  const setSlave = async (dialog: HTMLElement, value: string) => {
-    const slave = within(dialog).getByLabelText("Slave ID");
+  it("FC16 in Binary: a pasted run of nibbles is four values, and the label says so", async () => {
+    const id = await connected();
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    await h.user.selectOptions(within(d).getByLabelText("Function"), "16");
+    await h.user.click(within(d).getByRole("radio", { name: "Binary" }));
+    const box = within(d).getByLabelText(/^Values/);
+    await h.user.clear(box);
+    await h.user.click(box);
+    await h.user.paste("0000 0100 1101 0010");
+    expect(within(d).getByText("Values (4)")).toBeVisible();
+    expect(within(d).getByText("Writes addresses 0-3.")).toBeVisible();
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    h.advance(50);
+    await waitFor(() => expect(h.ipc.callsOf("write")).toHaveLength(1));
+    expect((h.ipc.callsOf("write")[0] as unknown[])[0]).toMatchObject({
+      function: 16,
+      values: [0, 4, 13, 2],
+    });
+  });
+});
+
+describe("alias line (DES-003 3.5 revision 6)", () => {
+  it("shows 'Alias: PT-201' for the target address and follows the typed address", async () => {
+    const id = await connected({
+      ...POLL,
+      aliases: [
+        { address: 0, alias: "PT-201" },
+        { address: 2, alias: "PT-203" },
+      ],
+    });
+    await focusRow(id, 0);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog");
+    expect(within(d).getByTestId("write-alias")).toHaveTextContent("Alias: PT-201");
+    const address = within(d).getByLabelText("Start address");
+    await h.user.clear(address);
+    await h.user.type(address, "1");
+    expect(within(d).queryByTestId("write-alias")).not.toBeInTheDocument();
+    await h.user.clear(address);
+    await h.user.type(address, "x");
+    expect(within(d).queryByTestId("write-alias")).not.toBeInTheDocument();
+  });
+
+  it("FC16 adds how many more addresses of the range have aliases", async () => {
+    const id = await connected({
+      ...POLL,
+      aliases: [
+        { address: 0, alias: "PT-201" },
+        { address: 2, alias: "PT-203" },
+      ],
+    });
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    await h.user.selectOptions(within(d).getByLabelText("Function"), "16");
+    const box = within(d).getByLabelText(/^Values/);
+    await h.user.clear(box);
+    await h.user.type(box, "1 2 3");
+    expect(within(d).getByTestId("write-alias")).toHaveTextContent(
+      "Alias: PT-201 (+1 more with aliases)",
+    );
+  });
+});
+
+describe("one click while a blur shows a message (D4)", () => {
+  it("[Send] works when the blur of Slave ID shows a message and moves the button", async () => {
+    const id = await connected();
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const slave = within(d).getByLabelText("Slave ID");
     await h.user.clear(slave);
-    await h.user.type(slave, value);
-  };
-
-  it("RTU: slave ID 0 shows the broadcast warning and Send stays enabled", async () => {
-    await connected("rtu");
-    h.ipc.setResult("write", { status: "broadcastSent" });
-    const dialog = await openDialog();
-    await setSlave(dialog, "0");
-    expect(within(dialog).getByText(BROADCAST)).toBeVisible();
-    expect(within(dialog).getByRole("button", { name: "Send" })).toBeEnabled();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(result(dialog)).toHaveTextContent("Broadcast sent."));
-  });
-
-  it("TCP: unit 0 is a normal unit, with no warning and a normal confirmation", async () => {
-    await connected();
-    const dialog = await openDialog();
-    await h.user.clear(within(dialog).getByLabelText("Start address"));
-    await h.user.type(within(dialog).getByLabelText("Start address"), "3");
-    await setSlave(dialog, "0");
-    expect(within(dialog).queryByText(BROADCAST)).not.toBeInTheDocument();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent("Write confirmed by slave 0: register at 3."),
+    await h.user.type(slave, "300");
+    const message = "Slave ID must be a whole number from 0 to 247.";
+    expect(within(d).queryByText(message)).not.toBeInTheDocument();
+    await clickWithLayoutShift(
+      h.user,
+      within(d).getByRole("button", { name: "Send" }),
+      () => within(d).queryByText(message) !== null,
+      () => within(d).getByText(message),
     );
-    expect(result(dialog)).not.toHaveTextContent("Broadcast");
+    expect(within(d).getByText(message)).toBeInTheDocument();
+    expect(h.ipc.callsOf("write")).toHaveLength(0);
+    expect(slave).toHaveFocus();
+  });
+});
+
+describe("slave ID 0 (DES-001 3.3)", () => {
+  it("on RTU it is a broadcast: a warning, and Send stays enabled", async () => {
+    h = await renderWindow();
+    const id = await h.addPoll("Pump 2", POLL);
+    await h.act(() => h.rt.stores.connection.getState().connect(RTU));
+    h.advance(300);
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const slave = within(d).getByLabelText("Slave ID");
+    await h.user.clear(slave);
+    await h.user.type(slave, "0");
+    expect(
+      within(d).getByText("Broadcast: devices do not reply, so the result cannot be confirmed."),
+    ).toBeVisible();
+    expect(within(d).getByRole("button", { name: "Send" })).toBeEnabled();
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    h.advance(50);
+    await waitFor(() =>
+      expect(result()).toHaveTextContent(
+        "Broadcast sent. Devices do not reply to slave ID 0, so the write cannot be confirmed.",
+      ),
+    );
   });
 
-  it("the broadcast warning follows the connection the session has, not the draft", async () => {
-    await connected(3, true);
-    const dialog = await openDialog();
-    // The draft is switched to RTU after connecting over TCP.
-    act(() => {
-      h.rt.stores.config.getState().setConnection({
-        mode: "rtu",
-        port: "COM3",
-        baud: 9600,
-        dataBits: 8,
-        parity: "even",
-        stopBits: 1,
-        timeoutMs: 1000,
-      });
+  it("on TCP it is a normal unit: no warning, and the write is confirmed", async () => {
+    const id = await connected();
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const slave = within(d).getByLabelText("Slave ID");
+    await h.user.clear(slave);
+    await h.user.type(slave, "0");
+    expect(within(d).queryByText(/^Broadcast:/)).not.toBeInTheDocument();
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    h.advance(50);
+    await waitFor(() => expect(result()).toHaveTextContent("Write confirmed by slave 0"));
+  });
+});
+
+describe("link lost (DES-001 2.5)", () => {
+  async function linkLost(): Promise<PollId> {
+    const id = await connected();
+    // The form holds the connection that Reconnect uses.
+    await h.act(() => h.rt.form.current.adopt(TCP));
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const held = h.ipc.hold("write");
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    await h.act(async () => {
+      h.ipc.dropLink();
+      held.release({ status: "linkLost" });
     });
-    await setSlave(dialog, "0");
-    expect(within(dialog).queryByText(BROADCAST)).not.toBeInTheDocument();
+    return id;
+  }
+
+  it("shows the link-lost text with [Reconnect], keeps the draft, and disables Send", async () => {
+    await linkLost();
+    expect(result()).toHaveTextContent(
+      "Connection lost during the write. The write may or may not have been applied. Reconnect and check the value before sending again.",
+    );
+    expect(within(result()).getByRole("button", { name: "Reconnect" })).toBeVisible();
+    expect(within(dialog()).getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(within(dialog()).getByLabelText("Value")).toHaveValue("0");
   });
 
-  it("link lost: the exact text with the unplug icon, the draft kept and Send disabled", async () => {
-    await connected();
-    h.ipc.setResult("write", { status: "linkLost" });
-    const dialog = await openDialog();
-    await h.user.clear(within(dialog).getByLabelText("Start address"));
-    await h.user.type(within(dialog).getByLabelText("Start address"), "3");
-    const value = within(dialog).getByLabelText("Value");
+  it("[Reconnect] connects again, the result area clears, and Send gets the focus", async () => {
+    await linkLost();
+    await h.user.click(within(result()).getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(h.ipc.callsOf("connect")).toHaveLength(2));
+    await waitFor(() =>
+      expect(within(result()).queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument(),
+    );
+    expect(result()).toHaveTextContent("");
+    expect(within(dialog()).getByRole("button", { name: "Send" })).toBeEnabled();
+    expect(within(dialog()).getByRole("button", { name: "Send" })).toHaveFocus();
+    // The dialog stayed open and the draft is unchanged.
+    expect(within(dialog()).getByLabelText("Value")).toHaveValue("0");
+  });
+
+  it("a failed reconnect says why, keeps [Reconnect] and its focus", async () => {
+    await linkLost();
+    h.ipc.scriptConnectFailure({
+      kind: "refused",
+      phase: "connectFailed",
+      message: "refused",
+    });
+    await h.user.click(within(result()).getByRole("button", { name: "Reconnect" }));
+    await waitFor(() =>
+      expect(result()).toHaveTextContent(
+        "Reconnect failed: Connection refused by 192.168.1.10:502.",
+      ),
+    );
+    const again = within(result()).getByRole("button", { name: "Reconnect" });
+    expect(again).not.toHaveAttribute("aria-disabled", "true");
+    await waitFor(() => expect(again).toHaveFocus());
+  });
+
+  it("'Not connected' (a write that never left) has no [Reconnect]", async () => {
+    const id = await connected();
+    ctrlE(id);
+    await screen.findByRole("dialog");
+    await h.act(async () => h.ipc.dropLink());
+    expect(result()).toHaveTextContent("Not connected. Connect before writing.");
+    expect(within(result()).queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument();
+    expect(within(dialog()).getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+});
+
+describe("modal of the window (DES-002 2.5.4)", () => {
+  it("holds the lock: the shortcuts are off and pop out refuses while it is open", async () => {
+    const id = await connected();
+    ctrlE(id);
+    await screen.findByRole("dialog");
+    expect(h.rt.stores.layout.getState().modalOpen).toBe(true);
+    fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+    await h.act(async () => {
+      await h.rt.actions.popOutPoll(id);
+    });
+    expect(h.ipc.callsOf("popOutPoll")).toHaveLength(0);
+    await h.user.keyboard("{Escape}");
+    await waitFor(() => expect(h.rt.stores.layout.getState().modalOpen).toBe(false));
+    await h.act(async () => {
+      await h.rt.actions.popOutPoll(id);
+    });
+    expect(h.ipc.callsOf("popOutPoll")).toHaveLength(1);
+  });
+
+  it("a native poll cannot be docked from the list while the dialog is open in its window", async () => {
+    // The dialog of a native window answers the handoff request with a refusal (see the W2 tests).
+    const id = await connected();
+    ctrlE(id);
+    await screen.findByRole("dialog");
+    await h.act(async () => {
+      await h.rt.stores.host.getState().dock(id);
+    });
+    expect(h.ipc.callsOf("dockPoll")).toHaveLength(0);
+  });
+
+  it("closes by itself when its poll is deleted", async () => {
+    const id = await connected();
+    ctrlE(id);
+    await screen.findByRole("dialog");
+    await h.act(async () => {
+      await h.ipc.removePoll(id);
+    });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(h.rt.stores.layout.getState().modalOpen).toBe(false);
+  });
+});
+
+describe("scaled preview seam (DES-003 3.5): a poll without a scale has none", () => {
+  it("shows no preview line without a scale provider", async () => {
+    const id = await connected();
+    ctrlE(id);
+    await screen.findByRole("dialog");
+    expect(screen.queryByTestId("write-preview")).not.toBeInTheDocument();
+  });
+
+  it("shows the line when a provider supplies a scale (a test provider replaces the real one)", async () => {
+    h = await renderWindow({
+      runtimeOptions: {
+        createScaled: () => (raw) => ({
+          text: (raw / 10).toFixed(2),
+          unit: "mA",
+          marker: "none",
+          tooltip: null,
+          label: "",
+          override: null,
+        }),
+      },
+    });
+    const id = await h.addPoll("Pump 2", POLL);
+    await h.connect();
+    h.advance(300);
+    ctrlE(id);
+    const d = await screen.findByRole("dialog");
+    const value = within(d).getByLabelText("Value");
     await h.user.clear(value);
-    await h.user.type(value, "9");
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
+    await h.user.type(value, "125");
+    expect(within(d).getByTestId("write-preview")).toHaveTextContent("Scaled: 12.50 mA");
+    await h.user.clear(value);
+    await h.user.type(value, "abc");
+    expect(within(d).queryByTestId("write-preview")).not.toBeInTheDocument();
+  });
+});
+
+describe("native poll window", () => {
+  it("opens from the grid with the same title and prefill, and sends the poll id", async () => {
+    n = await renderNativeWindow();
+    await n.connect();
+    n.advance(300);
+    const g = screen.getByRole("grid");
+    const row = within(g)
+      .getAllByRole("row")
+      .find((r) => r.getAttribute("data-row") === "2") as HTMLElement;
+    await n.user.click(row);
+    fireEvent.keyDown(g, { key: "Enter" });
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Slave ID")).toHaveValue("5");
+    expect(within(d).getByLabelText("Start address")).toHaveValue("2");
+    await n.user.click(within(d).getByRole("button", { name: "Send" }));
+    n.advance(50);
     await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent(
-        "Connection lost during the write. The write may or may not have been applied. Reconnect and check the value before sending again.",
+      expect(within(d).getByTestId("write-result")).toHaveTextContent(
+        "Write confirmed by slave 5: register at 2.",
       ),
     );
-    // The backend moves the session to disconnected at the same time.
-    h.state("disconnected", { reason: sessionReason("closedByPeer", "x", "linkLost") });
-    expect(result(dialog).querySelector('[data-icon="unplug"]')).toBeInTheDocument();
-    expect(result(dialog)).not.toHaveTextContent("Not connected. Connect before writing.");
-    expect(within(dialog).getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(within(dialog).getByLabelText("Start address")).toHaveValue("3");
-    expect(within(dialog).getByLabelText("Value")).toHaveValue("9");
-    // Reconnect and polling again: Send is enabled and the result area is empty.
-    h.state("connecting");
-    h.state("connected");
-    h.state("polling");
-    expect(within(dialog).getByRole("button", { name: "Send" })).toBeEnabled();
-    expect(result(dialog)).toBeEmptyDOMElement();
+    expect(n.ipc.callsOf("write")[0]?.[1]).toBe(n.pollId);
   });
 
-  it("a link-lost result stays while the draft is edited", async () => {
-    await connected();
-    h.ipc.setResult("write", { status: "linkLost" });
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent("Connection lost during the write"),
-    );
-    h.state("disconnected", { reason: sessionReason("closedByPeer", "x", "linkLost") });
-    await h.user.type(within(dialog).getByLabelText("Value"), "1");
-    expect(result(dialog)).toHaveTextContent("Connection lost during the write");
+  it("a dialog in the window refuses a dock and answers the handoff request with a refusal", async () => {
+    n = await renderNativeWindow();
+    await n.connect();
+    n.advance(300);
+    await n.user.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "Write…" }));
+    await screen.findByRole("dialog");
+    expect(n.rt.stores.layout.getState().modalOpen).toBe(true);
+    await n.act(() => n.rt.stores.host.getState().dock(n.pollId));
+    expect(n.ipc.callsOf("dockPoll")).toHaveLength(0);
+    await n.act(() => n.rt.stores.host.getState().answerHandoffRequest(n.pollId));
+    expect(n.ipc.callsOf("provideHandoff")).toEqual([[n.pollId, null]]);
   });
 
-  it("a write queued when the link drops reads Not connected, never link lost", async () => {
-    await connected();
-    h.ipc.setResult("write", { status: "notConnected" });
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent("Not connected. Connect before writing."),
-    );
-  });
-
-  it("a bad response shows the short-frame text from the detail", async () => {
-    await connected();
-    h.ipc.setResult("write", {
-      status: "badResponse",
-      kind: "shortFrame",
-      detail: { expected: 8, got: 5, message: "" },
+  it("link lost in a native window: [Reconnect] connects again", async () => {
+    n = await renderNativeWindow();
+    await n.connect();
+    n.advance(300);
+    await n.user.click(within(screen.getByRole("toolbar")).getByRole("button", { name: "Write…" }));
+    const d = await screen.findByRole("dialog");
+    const held = n.ipc.hold("write");
+    await n.user.click(within(d).getByRole("button", { name: "Send" }));
+    await n.act(async () => {
+      n.ipc.dropLink();
+      held.release({ status: "linkLost" });
     });
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
+    const button = within(within(d).getByTestId("write-result")).getByRole("button", {
+      name: "Reconnect",
+    });
+    await n.user.click(button);
+    await waitFor(() => expect(n.ipc.callsOf("connect")).toHaveLength(2));
     await waitFor(() =>
-      expect(result(dialog)).toHaveTextContent(
-        "Bad response: short frame (5 of 8 bytes). The write may or may not have been applied.",
-      ),
+      expect(
+        within(within(d).getByTestId("write-result")).queryByRole("button", { name: "Reconnect" }),
+      ).not.toBeInTheDocument(),
     );
-  });
-
-  it("a backend validation error names the input and the dialog focuses it", async () => {
-    await connected();
-    h.ipc.failNext("write", new IpcError("Slave ID is out of range.", "validation", "slaveId"));
-    const dialog = await openDialog();
-    await h.user.click(within(dialog).getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(within(dialog).getByLabelText("Slave ID")).toHaveFocus());
-    expect(result(dialog)).toHaveTextContent("Could not send the write: Slave ID is out of range.");
-  });
-
-  it("when the session leaves the link-up states, Send is disabled and the result area says so", async () => {
-    await connected();
-    const dialog = await openDialog();
-    h.state("disconnected", { reason: sessionReason("closedByPeer", "x") });
-    expect(within(dialog).getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(result(dialog)).toHaveTextContent("Not connected. Connect before writing.");
-    expect(result(dialog).querySelector('[data-icon="unplug"]')).toBeInTheDocument();
-  });
-
-  it("prefills function 05 for a coil poll", async () => {
-    await connected(1);
-    h.emit(() => h.ipc.emitPollUpdate({ function: 1, startAddress: 100, values: [0, 1, 0] }));
-    const dialog = await openDialog();
-    expect(within(dialog).getByLabelText("Function")).toHaveValue("5");
-    expect(within(dialog).getByRole("radio", { name: "ON" })).toBeChecked();
   });
 });

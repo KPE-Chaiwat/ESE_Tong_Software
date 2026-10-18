@@ -11,6 +11,6 @@ modifiedAt: number,
  */
 connectionSummary: string, 
 /**
- * False when the file cannot be opened (newer schema or corrupt); `profiles_get` fails.
+ * False when the file cannot be opened (newer schema or damaged); `profiles_get` fails.
  */
 readable: boolean, };

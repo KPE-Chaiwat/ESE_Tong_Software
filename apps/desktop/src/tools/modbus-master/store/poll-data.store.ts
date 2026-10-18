@@ -1,10 +1,13 @@
+// The values of one poll view (DES-001 2.4, FE-002 task 08): empty, loading, live or stale. One
+// store per view, so two sub-windows in one connection window never share a table. The store
+// ignores updates of another poll, out-of-order updates and updates for an old definition.
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { PollDefinition, PollUpdateEvent } from "@/shared/ipc/modbus-master.types";
+import type { PollDefinition, PollId, PollUpdate } from "@/shared/ipc/modbus-master.types";
 import { kindOf, matchesDefinition, type PollDataStatus, type PollKind } from "./poll-data.logic";
 
 export type ClearReason = "settingsChanged";
 
-export interface PollDataData {
+export interface PollDataState {
   status: PollDataStatus;
   /** The definition the values belong to. */
   definition: PollDefinition | null;
@@ -20,19 +23,24 @@ export interface PollDataData {
 }
 
 export interface PollDataActions {
-  /** A poll starts for `def`: the view is loading and old values are dropped. */
+  /** A poll starts for `def`: the view is loading and the old values are dropped. */
   begin(def: PollDefinition): void;
-  /** Ignores updates with `seq <=` the current one and updates for another definition. */
-  applyUpdate(u: PollUpdateEvent): void;
+  /**
+   * The attach snapshot carries the last good values, so a view that was just moved shows them at
+   * once (live), without passing through loading.
+   */
+  seed(def: PollDefinition, update: PollUpdate): void;
+  /** Ignores updates of another poll, with `seq <=` the current one, or for another definition. */
+  applyUpdate(u: PollUpdate): void;
   /** Keeps the values but shows them as stale. Only when there are values. */
   markStale(): void;
   clear(reason?: ClearReason): void;
 }
 
-export type PollDataStore = PollDataData & PollDataActions;
+export type PollDataStore = PollDataState & PollDataActions;
 export type PollDataStoreApi = StoreApi<PollDataStore>;
 
-const emptyData: PollDataData = {
+const emptyData: PollDataState = {
   status: "none",
   definition: null,
   kind: "registers",
@@ -43,21 +51,31 @@ const emptyData: PollDataData = {
   clearedBecause: null,
 };
 
-export function createPollDataStore(): PollDataStoreApi {
+export function createPollDataStore(deps: { pollId: PollId }): PollDataStoreApi {
   return createStore<PollDataStore>()((set, get) => ({
     ...emptyData,
 
     begin(def) {
+      set({ ...emptyData, status: "loading", definition: def, kind: kindOf(def.function) });
+    },
+
+    seed(def, update) {
+      if (update.pollId !== deps.pollId || !matchesDefinition(def, update)) return;
       set({
-        ...emptyData,
-        status: "loading",
+        status: "live",
         definition: def,
         kind: kindOf(def.function),
+        values: update.values,
+        seq: update.seq,
+        lastOkAt: update.at,
+        roundTripMs: update.roundTripMs,
+        clearedBecause: null,
       });
     },
 
     applyUpdate(u) {
       const { definition, seq } = get();
+      if (u.pollId !== deps.pollId) return;
       if (!definition || u.seq <= seq || !matchesDefinition(definition, u)) return;
       set({
         status: "live",
@@ -70,7 +88,7 @@ export function createPollDataStore(): PollDataStoreApi {
     },
 
     markStale() {
-      if (get().values !== null) set({ status: "stale" });
+      if (get().values !== null && get().status !== "stale") set({ status: "stale" });
     },
 
     clear(reason) {
@@ -79,8 +97,11 @@ export function createPollDataStore(): PollDataStoreApi {
   }));
 }
 
-export const selectPollStatus = (s: PollDataStore) => s.status;
+export const selectPollDataStatus = (s: PollDataStore) => s.status;
 export const selectPollValues = (s: PollDataStore) => s.values;
-export const selectPollDefinition = (s: PollDataStore) => s.definition;
-export const selectPollKind = (s: PollDataStore) => s.kind;
-export const selectLastOkAt = (s: PollDataStore) => s.lastOkAt;
+export const selectPollDataDefinition = (s: PollDataStore) => s.definition;
+export const selectPollDataKind = (s: PollDataStore) => s.kind;
+export const selectPollDataLastOkAt = (s: PollDataStore) => s.lastOkAt;
+export const selectPollDataClearedBecause = (s: PollDataStore) => s.clearedBecause;
+/** One row subscribes to its own value: an update that changes other rows leaves it alone. */
+export const selectValueAt = (index: number) => (s: PollDataStore) => s.values?.[index];

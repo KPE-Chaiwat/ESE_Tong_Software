@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { toIpcError } from "@/shared/ipc/modbus-master";
+import { toIpcError } from "@/shared/ipc/errors";
 import { StateBanner } from "@/shared/ui/state-banner";
-import { ModbusMasterProvider } from "./components/context";
-import { ModbusMasterWindow } from "./components/ModbusMasterWindow";
+import { ConnectionWindow } from "./components/ConnectionWindow";
+import { ConnectionRuntimeProvider } from "./components/context";
 import { getWindowRuntime } from "./runtime/window-runtime";
 
 /**
- * Route component of the tool. Each Tauri window is its own JS context, so this creates exactly
- * one runtime (stores + controller + IPC) per window and opens its backend session.
+ * Route component of the tool: the connection window W1. Each Tauri window is its own JS context,
+ * so this creates exactly one runtime (stores, views and IPC) per window and opens its backend
+ * session.
  */
 export default function ModbusMasterPage() {
   const runtime = getWindowRuntime();
@@ -24,15 +25,15 @@ export default function ModbusMasterPage() {
   }, [runtime]);
 
   return (
-    <ModbusMasterProvider runtime={runtime}>
+    <ConnectionRuntimeProvider runtime={runtime}>
       <div className="flex h-full flex-col">
         {startError ? (
           <StateBanner variant="error" icon="unplug">
             Could not start the Modbus session: {startError}
           </StateBanner>
         ) : null}
-        <ModbusMasterWindow />
+        <ConnectionWindow />
       </div>
-    </ModbusMasterProvider>
+    </ConnectionRuntimeProvider>
   );
 }

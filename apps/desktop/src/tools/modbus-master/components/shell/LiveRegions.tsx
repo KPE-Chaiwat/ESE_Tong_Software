@@ -1,53 +1,39 @@
-import { useEffect, useRef, useState } from "react";
-import { bannerFor, pillFor } from "../../store/session.logic";
-import { useConfig, useRunningSetup, useSession } from "../context";
+import { useStore } from "zustand";
+import type { AnnouncerStoreApi } from "../../store/announcer.store";
+import { useRuntime } from "../context";
 
 /**
- * Screen reader announcements for session state changes (DES-001 7): the pill label and banner
- * text, once per transition into a new state. `disconnected` is assertive, the rest polite.
- * Repeats of the same state (the "n in a row" counter) are not announced again.
+ * The polite and the assertive live region of a window (DES-001 7, DES-002 1.5 rule 5 and 2.10.8).
+ * The sequence number is the key, so a repeated text is announced again.
  */
-export function LiveRegions() {
-  const state = useSession((s) => s.state);
-  const reason = useSession((s) => s.reason);
-  const exceptionCode = useSession((s) => s.exceptionCode);
-  const badResponse = useSession((s) => s.badResponse);
-  const consecutiveFailures = useSession((s) => s.consecutiveFailures);
-  const { connection, poll } = useRunningSetup();
-  const addressBase = useConfig((s) => s.display.addressBase);
-
-  const [polite, setPolite] = useState("");
-  const [assertive, setAssertive] = useState("");
-  const previous = useRef(state);
-
-  // Only a change of state is announced; the other values are read at that moment.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: see above.
-  useEffect(() => {
-    if (previous.current === state) return;
-    previous.current = state;
-    const pill = pillFor(state, exceptionCode);
-    const banner = bannerFor(
-      { state, reason, exceptionCode, badResponse, consecutiveFailures },
-      { connection, poll, addressBase },
-    );
-    const text = banner ? `${pill.label}. ${banner.text}` : pill.label;
-    if (state === "disconnected") {
-      setAssertive(text);
-      setPolite("");
-    } else {
-      setPolite(text);
-      setAssertive("");
-    }
-  }, [state]);
-
+export function LiveRegionsFor({ store }: { store: AnnouncerStoreApi }) {
+  const polite = useStore(store, (s) => s.polite);
+  const assertive = useStore(store, (s) => s.assertive);
   return (
     <>
-      <div className="sr-only" aria-live="polite" role="status" data-testid="live-polite">
-        {polite}
+      <div
+        className="sr-only"
+        aria-live="polite"
+        role="status"
+        data-testid="live-polite"
+        data-seq={polite.seq}
+      >
+        <span key={polite.seq}>{polite.text}</span>
       </div>
-      <div className="sr-only" aria-live="assertive" role="alert" data-testid="live-assertive">
-        {assertive}
+      <div
+        className="sr-only"
+        aria-live="assertive"
+        role="alert"
+        data-testid="live-assertive"
+        data-seq={assertive.seq}
+      >
+        <span key={assertive.seq}>{assertive.text}</span>
       </div>
     </>
   );
+}
+
+/** The live regions of the connection window. */
+export function LiveRegions() {
+  return <LiveRegionsFor store={useRuntime().stores.announcer} />;
 }

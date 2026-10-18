@@ -21,6 +21,8 @@ const buttonVariants = cva(
         sm: "h-8 px-4",
         lg: "h-12 px-7 text-base",
         icon: "size-10",
+        // 32 x 32 icon-only button (a narrow toolbar, DES-002 2.6): same shape and tones as `sm`.
+        "icon-sm": "size-8 px-0",
       },
     },
     defaultVariants: { variant: "default", size: "default" },

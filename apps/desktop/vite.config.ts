@@ -31,5 +31,10 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     css: false,
+    // The window-level tests render whole connection windows in jsdom: a few seconds on a quiet
+    // machine, several times that when other work shares the CPU (REV-007 m-6). The default 5 s
+    // made `pnpm test:web` fail on a loaded machine; a real hang still fails, only later.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

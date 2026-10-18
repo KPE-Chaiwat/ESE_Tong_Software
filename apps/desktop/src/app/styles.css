@@ -32,6 +32,11 @@
   --ese-neutral-tint: color-mix(in srgb, var(--ese-dark) 6%, transparent);
   --ese-error-tint: color-mix(in srgb, var(--ese-error) 12%, transparent);
   --ese-selected: color-mix(in srgb, var(--ese-accent) 35%, transparent);
+  /* DES-003 1.4: out-of-range cells. Dark text on it measures above 8:1. */
+  --ese-warning-tint: color-mix(in srgb, var(--ese-warning) 20%, transparent);
+  /* DES-002 section 5: the workspace behind the sub-windows, and the sub-window shadow. */
+  --ese-workspace: color-mix(in srgb, var(--ese-dark) 18%, var(--ese-light));
+  --ese-shadow-subwindow: 0 4px 14px color-mix(in srgb, var(--ese-dark) 18%, transparent);
 
   /*
    * Semantic names used by the shadcn/ui contract.
@@ -87,6 +92,9 @@
   --color-neutral-tint: var(--ese-neutral-tint);
   --color-error-tint: var(--ese-error-tint);
   --color-selected: var(--ese-selected);
+  --color-warning-tint: var(--ese-warning-tint);
+  --color-workspace: var(--ese-workspace);
+  --shadow-subwindow: var(--ese-shadow-subwindow);
 
   /* shadcn/ui contract names */
   --color-background: var(--background);
@@ -147,10 +155,12 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* The page is exactly the window and never scrolls (REPORT-007 D6): only boxes inside scroll. */
   html,
   body,
   #root {
     height: 100%;
+    overflow: hidden;
   }
   body {
     @apply bg-background text-foreground font-sans antialiased;

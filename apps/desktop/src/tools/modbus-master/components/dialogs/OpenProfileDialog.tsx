@@ -6,15 +6,19 @@ import { FieldMessage } from "@/shared/ui/field-message";
 import { Icon } from "@/shared/ui/icon";
 import { Input } from "@/shared/ui/input";
 import { formatDateTime } from "../../lib/format";
+import {
+  DELETE_PROFILE_TITLE,
+  deleteProfileBody,
+  UNREADABLE_PROFILE,
+} from "../../store/profile.logic";
 import { visibleProfiles } from "../../store/profiles.store";
-import { useController, useDialogs, useModalLock, useProfiles, useRuntime } from "../context";
+import { useDialogs, useModalLock, useProfiles, useRuntime } from "../context";
 
 /** S3 Open profile (DES-001): filter, list, Open, inline Rename and Delete with a confirm. */
 export function OpenProfileDialog() {
   const uid = useId();
   const runtime = useRuntime();
-  const controller = useController();
-  const { profiles, dialogs, confirm, config } = runtime.stores;
+  const { profiles, dialogs, confirm } = runtime.stores;
   const open = useDialogs((s) => s.openProfileVisible);
   const status = useProfiles((s) => s.status);
   const items = useProfiles((s) => s.items);
@@ -50,7 +54,7 @@ export function OpenProfileDialog() {
     if (!name) return;
     if (!items.find((p) => p.name === name)?.readable) return;
     close();
-    await controller.loadProfile(name);
+    await runtime.profileFlow.load(name);
   };
 
   const startRename = () => {
@@ -69,9 +73,7 @@ export function OpenProfileDialog() {
     }
     // The title follows when the renamed profile is the one loaded in this window.
     // The backend matches names ignoring case, so the loaded profile is compared that way too.
-    if (config.getState().profileName?.toLowerCase() === renaming.toLowerCase()) {
-      config.getState().setProfileName(renameText);
-    }
+    runtime.profileFlow.renamed(renaming, renameText);
     setSelected(renameText);
     setRenaming(null);
     setRenameError(null);
@@ -81,8 +83,8 @@ export function OpenProfileDialog() {
     if (!selected) return;
     const name = selected;
     const answer = await confirm.getState().ask({
-      title: "Delete profile?",
-      body: `Delete "${name}"? This cannot be undone.`,
+      title: DELETE_PROFILE_TITLE,
+      body: deleteProfileBody(name),
       buttons: [
         { id: "cancel", label: "Cancel", variant: "outline" },
         { id: "delete", label: "Delete", variant: "destructive" },
@@ -234,7 +236,7 @@ export function OpenProfileDialog() {
                             title={p.connectionSummary}
                           >
                             <Icon name="triangle-alert" />
-                            Cannot be opened (newer or damaged file)
+                            {UNREADABLE_PROFILE}
                           </span>
                         )}
                       </td>

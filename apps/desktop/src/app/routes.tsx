@@ -7,12 +7,14 @@ const manifests = tools.map((tool) => tool.manifest);
 
 export const routes: RouteObject[] = [
   { path: "/", element: <LauncherPage manifests={manifests} /> },
-  ...tools.map(({ manifest, Page }) => ({
-    path: manifest.route,
-    element: (
-      <Suspense fallback={null}>
-        <Page />
-      </Suspense>
-    ),
-  })),
+  ...tools.flatMap(({ manifest, Page, extraRoutes = [] }) =>
+    [{ path: manifest.route, Page }, ...extraRoutes].map(({ path, Page: RoutePage }) => ({
+      path,
+      element: (
+        <Suspense fallback={null}>
+          <RoutePage />
+        </Suspense>
+      ),
+    })),
+  ),
 ];

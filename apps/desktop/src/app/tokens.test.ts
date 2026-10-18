@@ -34,7 +34,15 @@ describe("design tokens (DES-001 6.1)", () => {
   });
 
   it("defines the derived tokens as mixes of base tokens", () => {
-    for (const name of ["text-muted", "border", "neutral-tint", "error-tint", "selected"]) {
+    for (const name of [
+      "text-muted",
+      "border",
+      "neutral-tint",
+      "error-tint",
+      "selected",
+      "warning-tint",
+      "workspace",
+    ]) {
       expect(code).toMatch(new RegExp(String.raw`--ese-${name}:\s*color-mix\(`));
       expect(code).toMatch(new RegExp(String.raw`--color-${name}:\s*var\(--ese-${name}\)`));
     }
@@ -71,9 +79,15 @@ describe("design tokens (DES-001 6.1)", () => {
     const allowed = [
       "shared/ui/status-pill.tsx",
       "shared/ui/state-banner.tsx",
+      "shared/ui/status-strip.tsx",
+      // DES-003 1.4: the out-of-range tint of a scaled value.
+      "tools/modbus-master/components/poll-view/ScaledCellView.tsx",
       "shared/ui/freshness-chip.tsx",
       "shared/ui/badge.tsx",
-      "tools/modbus-master/components/dialogs/WriteDialog.tsx",
+      // The minimized pill of a poll in timeout or bad response has the warning border (DES-002 2.2.4).
+      "tools/modbus-master/components/workspace/MinimizedBar.tsx",
+      // The write result chips (DES-001 2.5) and the scaled preview tint (DES-003 3.5).
+      "tools/modbus-master/components/dialogs/WriteDialogView.tsx",
     ];
     const offenders = sourceFiles(srcDir)
       .filter((f) => /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f))

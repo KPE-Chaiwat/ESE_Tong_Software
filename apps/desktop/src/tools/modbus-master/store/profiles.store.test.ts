@@ -7,12 +7,22 @@ import { createProfilesStore, type ProfilesStoreApi, visibleProfiles } from "./p
 
 function profile(name: string): Profile {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     name,
     connection: { mode: "tcp", host: "192.168.1.10", port: 502, timeoutMs: 1000 },
-    poll: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 1000 },
-    display: { format: "unsigned", addressBase: 0 },
     autoStartPoll: true,
+    connectionWindow: null,
+    workspace: {
+      tileMode: false,
+      compact: false,
+      sidebarWidth: 280,
+      sidebarCollapsed: false,
+      trafficExpanded: false,
+      trafficHeight: null,
+      minimizedOrder: [],
+    },
+    polls: [],
+    migratedFrom: null,
   };
 }
 

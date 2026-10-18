@@ -3,4 +3,4 @@
 /**
  * Stable error codes returned by every command. The frontend switches on these.
  */
-export type AppErrorCode = "validation" | "notConnected" | "invalidState" | "noSession" | "profileExists" | "profileNotFound" | "invalidProfileName" | "unsupportedSchema" | "invalidProfile" | "unknownTool" | "notSupported" | "io" | "internal";
+export type AppErrorCode = "validation" | "notConnected" | "invalidState" | "noSession" | "pollNotFound" | "profileExists" | "profileNotFound" | "invalidProfileName" | "unsupportedSchema" | "invalidProfile" | "unknownTool" | "notSupported" | "io" | "internal";

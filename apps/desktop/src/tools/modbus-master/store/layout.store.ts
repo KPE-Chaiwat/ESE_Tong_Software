@@ -1,21 +1,16 @@
+// Window-level UI state that is not part of the workspace layout: the modal lock that switches the
+// shortcuts off (DES-001 5.1) and the widths of the traffic table columns (DES-001 5.3). The
+// sidebar, traffic panel and sub-window layout live in the workspace store.
 import { createStore, type StoreApi } from "zustand/vanilla";
-import {
-  clampColumnWidth,
-  clampTrafficHeightPct,
-  DEFAULT_TRAFFIC_HEIGHT_PCT,
-  DEFAULT_VIEWPORT_HEIGHT_PX,
-  pctToPx,
-  pxToPct,
-} from "./layout.logic";
+import { clampColumnWidth } from "./layout.logic";
 
 export interface LayoutData {
-  setupOpen: boolean;
-  trafficCollapsed: boolean;
-  /** Traffic panel height as a percentage of the window height. */
-  trafficHeightPct: number;
-  /** Window height in px, needed to apply the 120px minimum. */
-  viewportHeight: number;
   columnWidths: Record<string, number>;
+  /**
+   * Compact mode turns the sidebar into a rail (DES-002 2.9); the user can still open it for as
+   * long as compact mode stays as it is. Ends when compact mode is toggled.
+   */
+  sidebarPeek: boolean;
   /** True while at least one modal holds a lock. */
   modalOpen: boolean;
   /** Number of open modals (for tests and diagnostics). */
@@ -23,17 +18,9 @@ export interface LayoutData {
 }
 
 export interface LayoutActions {
-  toggleSetup(): void;
-  toggleTraffic(): void;
-  setViewportHeight(px: number): void;
-  /** Clamped to 120px .. 70%. */
-  setTrafficHeight(pct: number): void;
-  setTrafficHeightPx(px: number): void;
-  /** Moves the splitter by `deltaPx` (positive grows the traffic panel). */
-  nudgeTrafficHeight(deltaPx: number): void;
-  resetTrafficHeight(): void;
   /** Clamped to the DES-001 5.3 minimum of the column. */
   setColumnWidth(id: string, px: number): void;
+  setSidebarPeek(peek: boolean): void;
   /**
    * A modal opened: returns the function that releases its lock. Every modal has its own lock,
    * so a confirm on top of a dialog cannot unlock the shortcuts when it closes (REV-002 m3).
@@ -47,35 +34,15 @@ export type LayoutStoreApi = StoreApi<LayoutStore>;
 
 export function createLayoutStore(): LayoutStoreApi {
   const locks = new Set<symbol>();
-  return createStore<LayoutStore>()((set, get) => ({
-    setupOpen: true,
-    trafficCollapsed: false,
-    trafficHeightPct: DEFAULT_TRAFFIC_HEIGHT_PCT,
-    viewportHeight: DEFAULT_VIEWPORT_HEIGHT_PX,
+  return createStore<LayoutStore>()((set) => ({
     columnWidths: {},
+    sidebarPeek: false,
     modalOpen: false,
     modalCount: 0,
 
-    toggleSetup: () => set((s) => ({ setupOpen: !s.setupOpen })),
-    toggleTraffic: () => set((s) => ({ trafficCollapsed: !s.trafficCollapsed })),
-    setViewportHeight: (px) =>
-      set((s) => ({
-        viewportHeight: px,
-        trafficHeightPct: clampTrafficHeightPct(s.trafficHeightPct, px),
-      })),
-    setTrafficHeight: (pct) =>
-      set((s) => ({ trafficHeightPct: clampTrafficHeightPct(pct, s.viewportHeight) })),
-    setTrafficHeightPx: (px) => get().setTrafficHeight(pxToPct(px, get().viewportHeight)),
-    nudgeTrafficHeight: (deltaPx) => {
-      const { trafficHeightPct, viewportHeight } = get();
-      get().setTrafficHeightPx(pctToPx(trafficHeightPct, viewportHeight) + deltaPx);
-    },
-    resetTrafficHeight: () =>
-      set((s) => ({
-        trafficHeightPct: clampTrafficHeightPct(DEFAULT_TRAFFIC_HEIGHT_PCT, s.viewportHeight),
-      })),
     setColumnWidth: (id, px) =>
       set((s) => ({ columnWidths: { ...s.columnWidths, [id]: clampColumnWidth(id, px) } })),
+    setSidebarPeek: (sidebarPeek) => set({ sidebarPeek }),
     lockModal() {
       const token = Symbol("modal");
       locks.add(token);
@@ -88,8 +55,5 @@ export function createLayoutStore(): LayoutStoreApi {
   }));
 }
 
-export const selectSetupOpen = (s: LayoutStore) => s.setupOpen;
-export const selectTrafficCollapsed = (s: LayoutStore) => s.trafficCollapsed;
-export const selectTrafficHeightPct = (s: LayoutStore) => s.trafficHeightPct;
 export const selectModalOpen = (s: LayoutStore) => s.modalOpen;
 export const selectColumnWidths = (s: LayoutStore) => s.columnWidths;

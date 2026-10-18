@@ -10,6 +10,7 @@ import type { IconName } from "@/shared/ui/icon";
 import { toDisplayAddress } from "../lib/address";
 import { badResponseText, exceptionName, formatExceptionCode } from "../lib/exceptions";
 import { formatValue } from "../lib/format";
+import type { ScaledMarker, ScaledProvider } from "../lib/scaled";
 import {
   type FieldErrors,
   type ValidationResult,
@@ -189,4 +190,109 @@ export function writeResultText(
   ctx: { request: WriteRequest | null; base: AddressBase; timeoutMs: number },
 ): string {
   return describeWriteResult(result, ctx).text;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Dialog context (DES-002 3.3, DES-003 3.5 revision 6)
+// ---------------------------------------------------------------------------------------------
+
+/** The toast of Enter or a double click on a row of a read-only poll (DES-001 S2). */
+export const READ_ONLY_TOAST = "Discrete inputs and input registers are read-only.";
+
+/** "Write · {poll name}" (mockup 4). */
+export function writeDialogTitle(pollName: string): string {
+  return `Write · ${pollName}`;
+}
+
+/**
+ * The alias line under the Address field (DES-003 3.5, revision 6): "Alias: {alias}" for the target
+ * address, plus " (+{n} more with aliases)" for FC15 and FC16 when other addresses of the written
+ * range have aliases. `startAddress` is the protocol address, null while the field is invalid.
+ * No line without an alias on the target address.
+ */
+export function aliasLineFor(
+  fn: number,
+  startAddress: number | null,
+  count: number,
+  aliases: ReadonlyMap<number, string>,
+): string | null {
+  if (startAddress === null) return null;
+  const alias = aliases.get(startAddress);
+  if (!alias) return null;
+  let more = 0;
+  if (fn === 15 || fn === 16) {
+    for (let i = 1; i < count; i += 1) if (aliases.get(startAddress + i)) more += 1;
+  }
+  return `Alias: ${alias}${more > 0 ? ` (+${more} more with aliases)` : ""}`;
+}
+
+export interface WritePreview {
+  /** "Scaled: 12.50 mA (out of range)". */
+  text: string;
+  /** `warning` has the warning tint and the `triangle-alert` icon; `neutral` the neutral tint. */
+  tone: "neutral" | "warning";
+  icon: IconName | null;
+}
+
+/** How many values of an FC16 write the preview lists (DES-003 3.5). */
+export const PREVIEW_VALUES = 5;
+
+/** " (out of range)" for a flagged value, " (clamped)" for a clamped one. */
+function markerNote(marker: ScaledMarker): string {
+  if (marker === "outOfRange") return " (out of range)";
+  return marker === "clamped-low" || marker === "clamped-high" ? " (clamped)" : "";
+}
+
+/**
+ * The scaled preview of a raw write (DES-003 3.5), or null when there is nothing to show: FC05 and
+ * FC15 have none, and an address without a scale gives no line. The provider is the poll's own
+ * (`createScaled`): the override that covers the address wins over the poll scale.
+ */
+export function writePreviewFor(
+  fn: number,
+  startAddress: number,
+  values: readonly number[],
+  scaled: ScaledProvider,
+): WritePreview | null {
+  if (fn === 6) {
+    const raw = values[0];
+    const cell = raw === undefined ? null : scaled(raw, startAddress);
+    if (!cell) return null;
+    const unit = cell.unit === "" ? "" : ` ${cell.unit}`;
+    return {
+      text: `Scaled: ${cell.text}${unit}${markerNote(cell.marker)}`,
+      tone: cell.marker === "outOfRange" ? "warning" : "neutral",
+      icon:
+        cell.marker === "outOfRange"
+          ? "triangle-alert"
+          : cell.marker === "clamped-low"
+            ? "arrow-down-to-line"
+            : cell.marker === "clamped-high"
+              ? "arrow-up-to-line"
+              : null,
+    };
+  }
+  if (fn === 16) {
+    const cells = values.slice(0, PREVIEW_VALUES).map((raw, i) => scaled(raw, startAddress + i));
+    const scaledCells = cells.filter((c) => c !== null);
+    const first = scaledCells[0];
+    if (!first) return null;
+    // One unit for every listed item: printed once at the end. Otherwise after each value
+    // (an empty unit counts as a unit of its own, DES-003 3.5).
+    const sameUnit = scaledCells.every((c) => c.unit === first.unit);
+    const items = cells.map((c) => {
+      if (!c) return "—";
+      const unit = !sameUnit && c.unit !== "" ? ` ${c.unit}` : "";
+      return `${c.text}${unit}${markerNote(c.marker)}`;
+    });
+    const more = values.length > PREVIEW_VALUES ? " …" : "";
+    const unit = sameUnit && first.unit !== "" ? ` ${first.unit}` : "";
+    const flagged = scaledCells.some((c) => c.marker === "outOfRange");
+    return {
+      text: `Scaled: ${items.join(", ")}${more}${unit}`,
+      tone: flagged ? "warning" : "neutral",
+      icon: flagged ? "triangle-alert" : null,
+    };
+  }
+  return null;
 }
