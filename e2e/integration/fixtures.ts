@@ -1,11 +1,11 @@
 import { expect, type Page, test as base } from "@playwright/test";
-import { ModbusApp } from "../support/app";
 import { Desktop } from "./desktop";
+import { RealMm } from "./real-mm";
 import { Sim } from "./sim";
 
 export { expect };
-export * from "../support/app";
 export { Desktop } from "./desktop";
+export { RealMm, RealNative } from "./real-mm";
 export { Sim, parseLog } from "./sim";
 
 interface Fixtures {
@@ -13,17 +13,19 @@ interface Fixtures {
   desktop: Desktop;
   /** The launcher window. */
   launcher: Page;
-  /** A Modbus Master window opened from the launcher (real `window_open_tool`). */
-  mm: ModbusApp;
+  /** A Modbus Master window (W1) opened from the launcher (real `window_open_tool`). */
+  mm: RealMm;
 }
 
 /** Opens a Modbus Master window from the launcher card and waits until it is ready. */
-export async function openModbusWindow(desktop: Desktop, launcher: Page): Promise<ModbusApp> {
+export async function openModbusWindow(desktop: Desktop, launcher: Page): Promise<RealMm> {
   const known = new Set(desktop.pages());
   await launcher.getByTestId("tool-card-modbus-master").getByRole("button", { name: "Open" }).click();
-  const page = await desktop.newPage(known, (u) => u.includes("/tools/modbus-master"));
-  const app = new ModbusApp(page);
-  await expect(app.toolbarButton("Connect")).toBeEnabled({ timeout: 30_000 });
+  const page = await desktop.newPage(known, (u) => /\/tools\/modbus-master(\/)?(\?|#|$)/.test(u));
+  const app = new RealMm(page);
+  await expect(app.toolbar.getByRole("button", { name: /^(Connect|Disconnect|Reconnect|Cancel)$/ }).first()).toBeEnabled({
+    timeout: 30_000,
+  });
   return app;
 }
 
@@ -48,7 +50,11 @@ export const test = base.extend<Fixtures>({
     await use(app);
     if (testInfo.status !== testInfo.expectedStatus) {
       await testInfo.attach("window.png", { body: await app.page.screenshot(), contentType: "image/png" }).catch(() => {});
+      await testInfo.attach("window-state.txt", {
+        body: JSON.stringify(desktop.windows(), null, 2),
+        contentType: "text/plain",
+      }).catch(() => {});
     }
-    expect(app.pageErrors, "uncaught page errors").toEqual([]);
+    expect(app.pageErrors, "uncaught page errors in W1").toEqual([]);
   },
 });

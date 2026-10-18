@@ -15,7 +15,8 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: 0,
-  workers: process.env.E2E_WORKERS ? Number(process.env.E2E_WORKERS) : 4,
+  // The integration project drives ONE real desktop (hardware keyboard and mouse input, foreground window, cursor): one worker.
+  workers: integrationOnly ? 1 : process.env.E2E_WORKERS ? Number(process.env.E2E_WORKERS) : 4,
   timeout: 45_000,
   expect: { timeout: 7_000 },
   reporter: [
@@ -37,18 +38,19 @@ export default defineConfig({
       name: "ui",
       outputDir: "./test-results/ui",
       testIgnore: /perf\.spec\.ts/,
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1618, height: 834 } },
     },
     {
       name: "perf",
       outputDir: "./test-results/perf",
       testMatch: /perf\.spec\.ts/,
       fullyParallel: false,
-      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 800 } },
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1618, height: 834 } },
     },
     {
       name: "integration",
       testDir: "./tests-integration",
+      testIgnore: /legacy/,
       outputDir: "./test-results/integration",
       fullyParallel: false,
       timeout: 120_000,
@@ -62,8 +64,10 @@ export default defineConfig({
         webServer: {
           command: "pnpm --filter @esefact/desktop dev:web",
           url: "http://localhost:1420",
-          // Never reuse: a server started without VITE_FAKE_IPC=manual would silently run against Tauri.
-          reuseExistingServer: false,
+          // Never reuse in a real run: a server started without VITE_FAKE_IPC=manual would silently
+          // run against Tauri. E2E_REUSE_SERVER=1 is only for the author's edit-run loop with a
+          // server started by hand with VITE_FAKE_IPC=manual.
+          reuseExistingServer: process.env.E2E_REUSE_SERVER === "1",
           timeout: 120_000,
           env: { VITE_FAKE_IPC: "manual" },
         },

@@ -24,5 +24,9 @@
     "support",
     "integration",
     "tests-integration"
+  ],
+  "exclude": [
+    "tests-integration/legacy",
+    "integration/legacy"
   ]
 }

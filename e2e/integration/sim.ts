@@ -5,7 +5,7 @@ import net from "node:net";
 import path from "node:path";
 
 export const REPO = path.resolve(import.meta.dirname, "..", "..");
-export const SIM_EXE = path.join(REPO, "target", "debug", "esefact-sim-slave.exe");
+export const SIM_EXE = process.env.ESEFACT_SIM_EXE ?? path.join(REPO, "target", "debug", "esefact-sim-slave.exe");
 
 export interface LogEntry {
   raw: string;
@@ -138,9 +138,42 @@ export class Sim {
     return this.lines.map(parseLog).filter((e): e is LogEntry => e !== null);
   }
 
+  /** Log lines (after `mark`, default all) whose text contains `word`, for example OVERLAP, ABANDONED, CLOSE. */
+  linesWith(word: string, mark = 0): string[] {
+    return this.lines.slice(mark).filter((l) => l.includes(` ${word}`));
+  }
+
+  /** Number of master requests (RX at the simulator) after `mark`. */
+  requestsSince(mark = 0): number {
+    return this.framesSince(mark).filter((f) => f.dir === "RX").length;
+  }
+
+  /** Request frames after `mark`, decoded: unit, function, start, quantity/value (reads and FC05/06). */
+  requestsDecoded(mark = 0, to?: number): Array<{ epoch: number; txn: number; unit: number; fc: number; addr: number; arg: number; bytes: string; conn: number | null }> {
+    return this.framesBetween(mark, to)
+      .filter((f) => f.dir === "RX" && f.bytes)
+      .map((f) => {
+        const b = (f.bytes ?? "").split(" ").map((x) => Number.parseInt(x, 16));
+        return {
+          epoch: f.epoch,
+          txn: ((b[0] ?? 0) << 8) | (b[1] ?? 0),
+          unit: b[6] ?? 0,
+          fc: b[7] ?? 0,
+          addr: ((b[8] ?? 0) << 8) | (b[9] ?? 0),
+          arg: ((b[10] ?? 0) << 8) | (b[11] ?? 0),
+          bytes: f.bytes ?? "",
+          conn: f.conn,
+        };
+      });
+  }
+
   /** Index to pass to `framesSince` so a test can look only at what happens next. */
   mark(): number {
     return this.lines.length;
+  }
+
+  framesBetween(mark: number, to?: number): LogEntry[] {
+    return this.lines.slice(mark, to).map(parseLog).filter((e): e is LogEntry => e !== null && (e.dir === "RX" || e.dir === "TX"));
   }
 
   framesSince(mark: number): LogEntry[] {
