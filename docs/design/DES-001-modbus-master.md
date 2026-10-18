@@ -194,6 +194,8 @@ There are two layers:
 
 ### 2.1 Session state set (finite)
 
+> **Superseded by DES-002** (multi-poll, REQ-002) for the multi-poll build: the single `SessionState` is split into `ConnectionState` and a per-poll `PollState`. See DES-002 sections 1.2-1.6 for the mapping. Sections 2.1-2.3 here remain the reference for the REQ-001 build and for the per-poll texts.
+
 `SessionState = idle | connecting | connected | polling | paused | timeout | exception | badResponse | disconnected`
 
 | State | Meaning |
@@ -630,6 +632,8 @@ Until the owner sets `--color-surface`, implement cards with `--color-light` plu
 ---
 
 ## 9. Backend needs (proposals, names only; the PM decides in BE-001)
+
+> **Superseded by DES-002 section 8** for the multi-poll contract. DES-002 adds connection/poll states, per-poll commands, events and counters, and profile schema 2.
 
 These are the commands, events and data the UI needs. Names and shapes are proposals. The behavior questions are in `docs/questions.md`.
 

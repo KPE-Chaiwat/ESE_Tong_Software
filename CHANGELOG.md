@@ -18,17 +18,50 @@ entries move into a new version section (see "Versioning and changelog" in `docs
   `pnpm check`) fails when they disagree.
 - This changelog.
 
-### Planned
-These are requirements that are written but not started; nothing below is in the app yet.
-- REQ-002: several polls per connection. Connect once, then add up to 16 named polls (own slave
-  id, function, address range and scan rate). Each poll can be opened in its own window and be
-  started, paused, edited and removed independently, with its state shown separately from the
-  connection state. One Communication Traffic view per connection, filterable by poll. Profiles
-  save the whole setup; profiles saved by 0.1.0 (one poll) will still open.
-- REQ-003: value scaling (engineering units). Presets None (raw), 4-20 mA, 0-10 V, divide by 10,
-  100 or 1000, and a custom linear scale (Xmin, Xmax, Ymin, Ymax), with decimal places and an
-  optional unit. Per-poll scale with per-row or per-range overrides, saved in the profile. Scaling
-  is display and input only; it never changes the raw value on the wire.
+- Modbus Master, several polls per connection (REQ-002). Connect once, then add up to 16 named
+  polls (own slave id, function, address range and scan rate). Each poll is shown as a sub-window
+  inside the connection window's workspace, or popped out into its own window and docked back.
+  Polls start, pause, edit and delete independently; a poll's timeout, exception or bad response no
+  longer changes the connection state. One Communication Traffic view per connection, filterable
+  by poll. Profiles save the whole setup including window layout; profiles saved by 0.1.0 (one
+  poll) still open and are migrated when saved.
+- Modbus Master workspace: move, resize, minimize, maximize and close sub-windows; snapping to
+  edges, other windows and snap zones; Window menu with Tile, Cascade and tile mode; reorder polls
+  in the sidebar by dragging; drag a poll from the list into the workspace; keyboard equivalents
+  for every drag action; Arrange for popped-out windows (Tile, Side by side, Stacked, Cascade, per
+  monitor) and a compact mode.
+- Modbus Master Alias column: an optional label per address, editable in the table, saved in the
+  profile, optionally included when copying.
+- Modbus Master value scaling (REQ-003): presets None (raw), 4-20 mA, 0-10 V, divide by 10, 100 or
+  1000, and a custom linear scale (Xmin, Xmax, Ymin, Ymax), with decimal places, unit, signed raw
+  and flag or clamp for values outside the raw range. Per-poll scale with per-row or per-range
+  overrides, a Scaled column next to Raw, copy options, and a scaled preview in the Write dialog.
+  Scaling is display only; the value sent is always the raw value.
+- Dev simulator (`esefact-sim-slave`): fault filter per unit id (`... unit=<id>`), `OVERLAP` and
+  `ABANDONED` log lines and a `master-timeout` command (test tool only, not part of the app).
+
+- Modbus Master polls issue requests at the configured scan rate on Windows (the system timer
+  resolution is raised to 1 ms only while a poll is running), instead of being rounded up to the
+  15.6 ms timer tick (a 100 ms poll used to run every 109 ms).
+- Keyboard: a lone Alt tap no longer freezes the window (it used to enter the Windows window-menu
+  mode); shortcuts defined by a Latin letter or digit also work with non-Latin keyboard layouts
+  such as Thai (matched by the physical key).
+- Modbus Master native poll windows: the setup opens as a popover when the window is narrower than
+  640 px; no page scrollbar at any width; the connection window now fits the screen's work area.
+
+### Changed
+- Modbus Master native window minimum size is 480 x 320 including the title bar and borders, so
+  nine popped-out windows tile on a 1080p screen.
+- Profile format is now schema 2 (layout, aliases, scale settings). Earlier builds cannot open a
+  profile that was saved in the new format.
+
+### Known limitations (unreleased work)
+- The multi-poll, workspace, drag and scaling features are covered by unit, component and
+  simulated-IPC tests but have not been run in a real window yet: pop out, dock, Arrange, DPI and
+  multi-monitor behavior, the real close behavior and migration of real 0.1.0 profiles are
+  unverified until the integration run.
+- Pop out by dragging a sub-window out of the workspace and dock by dragging a native window back
+  are not implemented (planned for a later phase; buttons and shortcuts work).
 
 ## [0.1.0] - 2026-10-16
 

@@ -113,6 +113,7 @@ Send one per line on stdin or to the control port (`127.0.0.1:5021`, plain TCP, 
 | `fault garbage [hex...]` | Send these bytes instead (default `DE AD BE EF`) |
 | `fault close` | Send half the reply, then close the socket |
 | `... times=N` | Any fault: apply to the next N requests only (default: until `clear`) |
+| `... unit=<id>` | Any fault: apply only to requests for that unit id (lets a test fail one poll while the others succeed) |
 | `clear` | Remove the active fault (one fault is active at a time; a new one replaces it) |
 | `units all` / `units <id> [id...]` | Change answered unit ids |
 | `limit <n>` | Change the exception-02 limit |
@@ -131,6 +132,40 @@ Except for `fault exception`, faulted requests are still executed (a write is ap
 ```
 
 Columns: UTC time, epoch milliseconds (comparable with `TrafficFrame.at`), connection id, direction, byte count, bytes in the same uppercase hex format as the Traffic panel, `# note` for faults. Control commands are logged as `CTRL <line> -> <answer>`.
+
+An `OVERLAP` line (with the elapsed ms) is logged when a request arrives before the previous reply was sent. The simulator serves requests one at a time, so this line is how a test proves (or disproves) that the master never overlaps requests on one link. Expect none in normal runs.
+
+During a `fault delay` that is longer than the master's timeout, the master legitimately gives up and sends the next request. That request is logged `ABANDONED` instead of `OVERLAP` when it arrives at least the master's timeout into the delay. Tell the simulator the master's timeout with the control command `master-timeout <ms>` (default 50 ms, the smallest timeout the master accepts). With a delay longer than the timeout, `ABANDONED` lines are expected.
+
+### Real-time scan rate check (idle machine)
+
+`crates/dev-sim-slave/tests/scan_rate.rs` measures the request interval of one poll against the simulator at 20, 50, 100, 250 and 500 ms (mean at most S + 4 ms, shortest interval at least S - 2 ms). It depends on the wall clock, so it is `#[ignore]`d by default; the deterministic virtual-time variant runs in `cargo test --workspace`. Run the real-time check on an otherwise idle machine with:
+
+```
+cargo test --workspace --test scan_rate -- --ignored --nocapture
+```
+
+(Use `--workspace`, not `-p dev-sim-slave`: the per-package form may build a second copy of the app crate and uses much more disk.)
+
+### Simulator with the 1 ms timer resolution (optional, CHK2-D3)
+
+By default the simulator process runs on the normal Windows timer (about 15.6 ms), so its own `fault delay` is quantized to that tick (a `fault delay 3` takes about 15.6 ms). The opt-in Cargo feature `os-timer` of `dev-sim-slave` makes it hold the app's 1 ms timer period (it reuses `os_timer` from the app crate; it adds no unsafe code; it is off by default because it builds the app crate). Build and run:
+
+```
+cargo build --workspace --features dev-sim-slave/os-timer
+target\debug\esefact-sim-slave.exe
+```
+
+Measured over loopback with 60 reads at `fault delay 3`: default median 15.56 ms (min 13.98, max 19.34); with `os-timer` median 3.92 ms (min 3.17, max 5.19). Rebuild without the feature to go back to the default build.
+
+### Build with the dev-only failure hook (QA only)
+
+The Cargo feature `dev-hooks` of `esefact-desktop` (off by default, never enabled by `pnpm build` or a release build) adds the command `dev_fail_next_window_op({ kind: "popOut" | "dock", message })`. It makes the NEXT pop out or dock fail once with `AppError { code: "internal", message }`, before any window or host change, so QA can test the failure and rollback path in the real app (CHK2-F16). Build the QA app with:
+
+```
+pnpm --filter @esefact/desktop tauri build --debug --no-bundle --features dev-hooks
+```
+
 ## 5. Layout notes
 
 - Crates: `modbus-core` <- `transport` <- `modbus-master` <- `apps/desktop/src-tauri`; `platform` and `shared-types` are independent. See `CLAUDE.md`. `crates/dev-sim-slave` is a dev/test tool (section 4), not a product crate.
