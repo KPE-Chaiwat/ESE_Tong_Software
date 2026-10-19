@@ -11,10 +11,12 @@ entries move into a new version section (see "Versioning and changelog" in `docs
 
 ## [Unreleased]
 
-### Changed
-- `Value color rules…` from a register row now scopes the conditional rule to that register, including when narrowing a previously whole-poll rule; read-only value cells no longer show native text-selection highlights that obscure rule colors.
-- A register row can now open its own static color rule, with separate background and text colors and no numeric threshold; other register rows are unaffected. Polls support up to 256 rules so every register in a 125-register poll can have its own color.
-- Custom value rule colors now warn about low text contrast without blocking Apply or profile load.
+## [0.2.0] - 2026-10-19
+
+Second pre-release build: several polls per connection, a workspace with sub-windows and
+pop-out, value scaling, aliases, combined 32/64-bit values, value color rules and bulk poll
+actions. The owner has not signed off the visual identity or the final status colors. The
+Windows installer is not code-signed.
 
 ### Added
 - Value color rules now let each rule choose its own background and text colors with a live preview and color syntax validation (REQ-005).
@@ -31,6 +33,9 @@ entries move into a new version section (see "Versioning and changelog" in `docs
   `Cargo.toml`); `pnpm version:set <x.y.z>` updates every file and `pnpm version:check` (part of
   `pnpm check`) fails when they disagree.
 - This changelog.
+- `README.md` (overview, features, install and run steps), an MIT `LICENSE`, and author
+  metadata (tong_ese) in the Cargo, package and installer configuration. The workspace license
+  changed from `UNLICENSED` to `MIT`.
 
 - Modbus Master, several polls per connection (REQ-002). Connect once, then add up to 16 named
   polls (own slave id, function, address range and scan rate). Each poll is shown as a sub-window
@@ -64,6 +69,9 @@ entries move into a new version section (see "Versioning and changelog" in `docs
   640 px; no page scrollbar at any width; the connection window now fits the screen's work area.
 
 ### Changed
+- `Value color rules…` from a register row now scopes the conditional rule to that register, including when narrowing a previously whole-poll rule; read-only value cells no longer show native text-selection highlights that obscure rule colors.
+- A register row can now open its own static color rule, with separate background and text colors and no numeric threshold; other register rows are unaffected. Polls support up to 256 rules so every register in a 125-register poll can have its own color.
+- Custom value rule colors now warn about low text contrast without blocking Apply or profile load.
 - Modbus Master profiles now save as schema 5 for custom rule colors; schemas 1–4 remain readable and migrate on save.
 - Modbus Master native window minimum size is 480 x 320 including the title bar and borders, so
   nine popped-out windows tile on a 1080p screen.
@@ -75,10 +83,15 @@ entries move into a new version section (see "Versioning and changelog" in `docs
 - Bulk-action recovery replies cannot overwrite a newly loaded profile's state, and poll selection
   checkboxes remain reachable with Tab while a bulk action is busy.
 
-### Known limitations (unreleased work)
-- Mixed-DPI dual-monitor layout, physical RTU devices and some non-installed keyboard layouts
-  still need owner-run checks; the available simulator and single-monitor real-window cases have
-  been verified.
+### Known limitations
+- Multi-poll, workspace, scaling, aliases and scan rate were checked in the real app with the
+  simulator on one monitor (docs/qa/REPORT-006 to REPORT-009). Bulk poll actions, value color
+  rules, combined 32/64-bit values, the sidebar toggle and the GridStack workspace
+  (REQ-004 to REQ-008) are only partly verified: checklists CHK-004 to CHK-008 stand at 3 pass,
+  58 partial and 10 open (docs/qa/REPORT-018).
+- Not verified yet: mixed-DPI dual-monitor layout, physical RTU devices, screen readers, some
+  keyboard layouts, a long soak test, and the speed of polls with many (up to 256) color rules.
+- The Windows installer is not code-signed, so Windows SmartScreen may warn.
 - Pop out by dragging a sub-window out of the workspace and dock by dragging a native window back
   are not implemented (planned for a later phase; buttons and shortcuts work).
 

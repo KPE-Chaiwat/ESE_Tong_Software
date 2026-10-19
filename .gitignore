@@ -34,3 +34,9 @@ apps/desktop/src-tauri/gen/
 .DS_Store
 Thumbs.db
 *.log
+
+# Codex IDE config (machine-local, never commit)
+.codex/
+
+# Claude Code local files (agent definitions stay on this machine)
+.claude/

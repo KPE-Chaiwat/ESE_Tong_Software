@@ -1,6 +1,8 @@
 {
   "name": "esefact",
-  "version": "0.1.0",
+  "version": "0.2.0",
+  "author": "tong_ese",
+  "license": "MIT",
   "private": true,
   "description": "ESEfact monorepo root. Scripts here are the single entry point for dev, build, checks and tests.",
   "packageManager": "pnpm@10.34.6",
