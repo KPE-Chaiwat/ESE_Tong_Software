@@ -40,6 +40,13 @@ At the previous pause: no agents, no esefact/playwright processes, ports 1420/50
 
 Product: ESEfact launcher. Tool 1: **Modbus Master** v0.1.0 shipped in docs (REQ-001) and the big extension REQ-002 (several polls per connection: workspace sub-windows, pop out/dock, drag and drop, Alias) + REQ-003 (value scaling) is implemented, reviewed and tested. All known defects (D1-D12) are fixed and verified in a real window.
 
+## RELEASE v0.2.0 (prepared 2026-10-19, NOT yet tagged or published)
+- Commit `42af0b9` has version 0.2.0, CHANGELOG [0.2.0], README, MIT LICENSE, author tong_ese. `pnpm check` green (web 3,464, Rust 451).
+- Installer built: `targeteleaseundle
+sisESEfact_0.2.0_x64-setup.exe` (3.5 MB, sha256 3DE6281B197D0788EB73741E195FFE165CE096386A045FE53B339976338295B1; not code-signed). The release exe starts and closes normally; the installer itself was NOT run (owner to test install/uninstall).
+- Review of the Codex commit f6af3d1: `docs/reviews/REV-013-codex-bulk-and-color-rules.md`: no blockers, OK as a PRE-release; stable release waits for CHK-004..008 sign-off (REPORT-018: 3 pass / 58 partial / 10 open) and a many-rules performance run. Minor findings m-1..m-n can go into 0.2.x.
+- To publish (owner does it): `git tag v0.2.0`, `git push origin main --tags`, then GitHub > Releases > Create a new release, pick the tag, attach the .exe, tick "pre-release". `.claude/` and `.codex/` are now git-ignored (local only).
+
 ## How to resume (read this first)
 1. Say "ลุยต่อ" (continue). The PM reads this file and `e2e/CHECKPOINT.md`, then does the "NEXT STEPS" list below in order. Do NOT redo anything marked DONE.
 2. Environment: corepack shims in `$HOME\.corepack-bin` must be prepended to PATH per shell (pnpm 10.34.6, Node 22.19, Rust 1.92). Verify with `pnpm check` (about 2.5 min; it costs about 1.2 GB of disk each time, so run it once per round).
