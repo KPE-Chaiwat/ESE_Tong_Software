@@ -139,10 +139,14 @@ describe("a profile is modified by content (CHK2-N2)", () => {
     expect(modified()).toBe(true);
   });
 
-  it("the value format", async () => {
+  it("a per-row value format (REQ-009)", async () => {
     const [a] = await loaded();
     const view = await attached(a as number);
-    await h.act(() => view.actions.setFormat("hex"));
+    await h.act(() =>
+      view.actions.applyFormatOverrides([
+        { start: 0, end: 1, format: "hex", swapBytes: false, reverseWords: false },
+      ]),
+    );
     expect(modified()).toBe(true);
   });
 
@@ -211,14 +215,8 @@ describe("loading and saving", () => {
           {
             name: "Kept",
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 5, scanRateMs: 100 },
-            display: {
-              format: "unsigned",
-              addressBase: 0,
-              showAlias: true,
-              copyAlias: false,
-              swapBytes: false,
-              reverseWords: false,
-            },
+            display: { addressBase: 0, showAlias: true, copyAlias: false },
+            formatOverrides: [],
             colorRules: [],
             scale: null,
             scaleOverrides: [],

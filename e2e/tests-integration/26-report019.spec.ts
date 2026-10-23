@@ -3,6 +3,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { expect, test } from "../integration/fixtures";
+import { formatFirstRegisters } from "../integration/format-dialog";
 import { openProfile, profileV2, writeProfile } from "../integration/profiles";
 
 test("CHK6-C4 clicked combined group sends exact raw FC06/FC16 for both widths and all orders", async ({
@@ -79,22 +80,15 @@ test("CHK6-C4 clicked combined group sends exact raw FC06/FC16 for both widths a
 			const title = mm.page.locator("[data-subwindow]").first();
 			// Existing setup helpers accept the profile-generated poll id.
 			const id = Number(await title.getAttribute("data-subwindow"));
-			if (!(await mm.setup(id).isVisible()))
-				await mm.titleButton(id, /^Poll setup/).click();
-			const section = mm
-				.setup(id)
-				.getByRole("region", { name: "Interpretation", exact: true });
-			await section
-				.getByLabel("Interpretation", { exact: true })
-				.selectOption(width === 2 ? "float32" : "unsigned64");
-			await section
-				.getByLabel("Swap bytes within each register")
-				.setChecked(swap);
-			await section.getByLabel("Reverse register order").setChecked(reverse);
-			await section
-				.getByRole("button", { name: "Apply interpretation" })
-				.click();
-			await mm.closeSetup(id);
+			// REQ-009: the Interpretation section is gone; the 12 registers take the format through D1.
+			await formatFirstRegisters(
+				mm.page,
+				mm.sub(id),
+				12,
+				12,
+				width === 2 ? "float32" : "unsigned64",
+				{ swapBytes: swap, reverseWords: reverse },
+			);
 			const addr = 1 + width * 2;
 			await sim.ctlOk(`set holding ${addr} 4660 22136 39612 57072`);
 			await expect(grid.locator("tbody tr").nth(2)).toContainText("0x1234");

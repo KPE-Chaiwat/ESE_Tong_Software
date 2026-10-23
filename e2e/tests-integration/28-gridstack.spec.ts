@@ -187,7 +187,7 @@ test("GridStack keeps live polls usable while moving, resizing and scrolling", a
 
 	await saveProfileAs(mm, "Grid layout");
 	const saved = readProfile(desktop, "Grid layout");
-	expect(saved.schemaVersion).toBe(5);
+	expect(saved.schemaVersion).toBe(6);
 	const firstGrid = saved.polls.find(
 		(poll: { name: string }) => poll.name === "Grid 1",
 	)?.view.workspace?.grid;

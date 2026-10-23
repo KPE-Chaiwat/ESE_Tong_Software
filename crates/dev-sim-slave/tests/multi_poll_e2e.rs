@@ -96,6 +96,7 @@ fn input(name: &str, unit: u8, start: u16, scan: u32) -> PollConfigInput {
             scan_rate_ms: scan,
         },
         display: DisplaySettings::default(),
+        format_overrides: vec![],
         color_rules: Vec::new(),
         scale: None,
         scale_overrides: vec![],

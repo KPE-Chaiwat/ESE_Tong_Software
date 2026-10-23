@@ -4,7 +4,12 @@ import { Button } from "@/shared/ui/button";
 import { Dialog } from "@/shared/ui/dialog";
 import { FieldMessage } from "@/shared/ui/field-message";
 import { Input, Select } from "@/shared/ui/input";
-import { COMPARISONS, colorContrast, MAX_COLOR_RULES, validateRules } from "../../lib/color-rules";
+import {
+  COMPARISONS,
+  colorContrast,
+  MAX_COLOR_RULES,
+  validateRulesForOverrides,
+} from "../../lib/color-rules";
 import { scaleAvailable } from "../../lib/scaled";
 import { newRule, ruleDraft } from "../../store/rule-draft";
 import { usePoll, usePollUi, usePollViewRuntime } from "./context";
@@ -63,7 +68,8 @@ export function RuleSection() {
     if (!pending) runtime.stores.ui.getState().setRuleDraft(null);
   };
   const validate = () => {
-    const errors = validateRules(rules, config.display.format);
+    // Each rule must fit every format its range can meet (DES-009 8.2).
+    const errors = validateRulesForOverrides(rules, config.formatOverrides);
     set({ errors });
     return errors;
   };

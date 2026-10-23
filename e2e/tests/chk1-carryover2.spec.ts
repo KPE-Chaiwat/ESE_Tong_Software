@@ -16,7 +16,9 @@ test.describe("D/F/G/H (carry-over) formats, bit polls, banner texts", () => {
     const id = await live(mm);
     await mm.script((f, i) => f.emitPollUpdate(i, { values: [1234, 65535, 32768, 0, 32767, 0, 0, 0, 0, 0] }), id);
     const raw = (row: number) => mm.gridRow(id, row).locator('[data-cell="raw"]');
-    await mm.grid(id).focus();
+    // REQ-009: Ctrl+1..4 set the format of the selected rows; Ctrl+A selects every row (the old poll-wide behavior).
+    await mm.gridRow(id, 0).click();
+    await page.keyboard.press("Control+a");
     await expect(raw(1)).toHaveText("65535");
     await page.keyboard.press("Control+2");
     await expect(raw(1)).toHaveText("-1");
@@ -42,13 +44,14 @@ test.describe("D/F/G/H (carry-over) formats, bit polls, banner texts", () => {
     const raw = (row: number) => mm.gridRow(id, row).locator('[data-cell="raw"]');
     await expect(raw(0)).toHaveText("1");
     await expect(raw(1)).toHaveText("0");
-    await mm.grid(id).focus();
+    await mm.gridRow(id, 0).click();
     await page.keyboard.press("Control+3");
     await expect(raw(0)).toHaveText("1");
     await mm.statusLine(id).getByRole("button", { name: /^Show / }).click();
-    const radio = page.getByRole("menuitemradio", { name: /^Hex/ });
-    await expect(radio).toHaveAttribute("aria-disabled", "true");
-    await expect(radio).toHaveAttribute("title", "Coils and discrete inputs are shown as 0 or 1.");
+    // REQ-009: the narrow menu has plain "Format of selected rows" items instead of the Raw format radio items.
+    const item = page.getByRole("menuitemradio", { name: /^Hex/ });
+    await expect(item).toBeDisabled();
+    await expect(item).toHaveAttribute("title", "Coils and discrete inputs are shown as 0 or 1.");
   });
 
   const TIPS: Array<{ name: string; state: string; extra: Record<string, unknown>; text: RegExp; icon: string }> = [

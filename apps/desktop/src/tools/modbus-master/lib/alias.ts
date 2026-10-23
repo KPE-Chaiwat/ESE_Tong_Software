@@ -62,12 +62,24 @@ export function parseAliasPaste(
   startAddress: number,
   endAddress: number,
 ): AliasPaste {
+  const addresses = Array.from(
+    { length: Math.max(0, endAddress - startAddress + 1) },
+    (_, i) => startAddress + i,
+  );
+  return parseAliasPasteAt(text, addresses);
+}
+
+/**
+ * Like `parseAliasPaste`, but line `i` goes to `addresses[i]`: the first register of each following
+ * row (a 32/64-bit group is one row, DES-009 8.5). Lines past the last address are `beyond`.
+ */
+export function parseAliasPasteAt(text: string, addresses: readonly number[]): AliasPaste {
   const entries: AliasEntry[] = [];
   let skipped = 0;
   let beyond = 0;
   for (const [i, line] of splitClipboardLines(text).entries()) {
-    const address = startAddress + i;
-    if (address > endAddress) {
+    const address = addresses[i];
+    if (address === undefined) {
       beyond += 1;
       continue;
     }

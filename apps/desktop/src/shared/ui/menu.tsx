@@ -91,6 +91,35 @@ interface MenuListProps {
 
 const NO_REFS: ReadonlyArray<React.RefObject<HTMLElement | null>> = [];
 
+type ListedEntry = Exclude<MenuEntry, MenuHeadingEntry>;
+type Segment =
+  | { kind: "entry"; entry: ListedEntry }
+  | { kind: "group"; heading: MenuHeadingEntry; entries: ListedEntry[] };
+
+/**
+ * A heading and the entries after it (up to the next heading or separator) form one `role="group"`
+ * named by the heading, so assistive tech does not read the radios of several sections as one set.
+ * A menu without headings is returned as it is.
+ */
+function segmentsOf(entries: readonly MenuEntry[]): Segment[] {
+  const out: Segment[] = [];
+  let current: Extract<Segment, { kind: "group" }> | null = null;
+  for (const entry of entries) {
+    if (entry.kind === "heading") {
+      current = { kind: "group", heading: entry, entries: [] };
+      out.push(current);
+    } else if (entry.kind === "separator") {
+      current = null;
+      out.push({ kind: "entry", entry });
+    } else if (current) {
+      current.entries.push(entry);
+    } else {
+      out.push({ kind: "entry", entry });
+    }
+  }
+  return out;
+}
+
 function MenuList({
   entries,
   label,
@@ -102,6 +131,7 @@ function MenuList({
   onBack,
 }: MenuListProps) {
   const listRef = useRef<HTMLDivElement>(null);
+  const headingPrefix = useId();
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [sub, setSub] = useState<{ id: string; at: { x: number; y: number } } | null>(null);
 
@@ -109,6 +139,13 @@ function MenuList({
   // reach them and read why they are off (their title); choosing one does nothing.
   const items = () =>
     Array.from(listRef.current?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []);
+
+  // A list taller than the window scrolls (see `max-h` below): the focused entry stays in view.
+  const focusEntry = (el: HTMLElement | undefined) => {
+    if (!el) return;
+    el.focus();
+    el.scrollIntoView?.({ block: "nearest" });
+  };
 
   // Keep the list inside the window, then focus the first entry (once, when the menu opens).
   // biome-ignore lint/correctness/useExhaustiveDependencies: `items` only reads the list element.
@@ -120,7 +157,7 @@ function MenuList({
     const overflowY = Math.max(0, rect.bottom - (window.innerHeight - 4));
     if (overflowX > 0 || overflowY > 0) setOffset({ x: -overflowX, y: -overflowY });
     const all = items();
-    (all.find((el) => el.getAttribute("aria-disabled") !== "true") ?? all[0])?.focus();
+    focusEntry(all.find((el) => el.getAttribute("aria-disabled") !== "true") ?? all[0]);
   }, []);
 
   useEffect(() => {
@@ -153,7 +190,7 @@ function MenuList({
     const index = list.indexOf(document.activeElement as HTMLElement);
     const go = (i: number) => {
       event.preventDefault();
-      list[(i + list.length) % list.length]?.focus();
+      focusEntry(list[(i + list.length) % list.length]);
     };
     switch (event.key) {
       case "ArrowRight": {
@@ -208,6 +245,79 @@ function MenuList({
     ...(alignEnd ? { right: window.innerWidth - at.x - offset.x } : { left: at.x + offset.x }),
   };
 
+  const renderEntry = (entry: ListedEntry) => {
+    if (entry.kind === "separator") {
+      // biome-ignore lint/a11y/useSemanticElements: a menu separator is not focusable, so it cannot be an <hr> in a menu.
+      return <div key={entry.id} role="separator" className="my-1 h-px bg-border" />;
+    }
+    if (entry.kind === "submenu") {
+      const open = sub?.id === entry.id;
+      return (
+        <button
+          key={entry.id}
+          type="button"
+          role="menuitem"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-disabled={entry.disabled || undefined}
+          title={entry.title}
+          tabIndex={-1}
+          data-menu-id={entry.id}
+          onClick={(e) => {
+            if (entry.disabled) return;
+            if (open) setSub(null);
+            else openSubmenu(entry, e.currentTarget);
+          }}
+          className={cn(
+            "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left outline-none focus-visible:bg-neutral-tint hover:bg-neutral-tint",
+            entry.disabled && "text-text-muted",
+          )}
+        >
+          <span className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+          <Icon name="chevron-right" className="size-3.5" />
+        </button>
+      );
+    }
+    const role =
+      entry.kind === "check"
+        ? "menuitemcheckbox"
+        : entry.kind === "radio"
+          ? "menuitemradio"
+          : "menuitem";
+    const checked = entry.kind === "item" ? undefined : entry.checked;
+    return (
+      // biome-ignore lint/a11y/useAriaPropsSupportedByRole: `role` is a variable (menuitemcheckbox or menuitemradio) when `checked` is set.
+      <button
+        key={entry.id}
+        type="button"
+        role={role}
+        aria-checked={checked}
+        aria-disabled={entry.disabled || undefined}
+        title={entry.title}
+        tabIndex={-1}
+        data-menu-id={entry.id}
+        onClick={() => {
+          if (entry.disabled) return;
+          onClose(true);
+          entry.onSelect();
+        }}
+        className={cn(
+          "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left outline-none focus-visible:bg-neutral-tint hover:bg-neutral-tint",
+          entry.disabled && "text-text-muted",
+        )}
+      >
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          {checked ? <Icon name="check" className="size-3.5" /> : null}
+        </span>
+        <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+        {entry.shortcut ? (
+          <span className="ml-4 shrink-0 text-xs text-text-muted">{entry.shortcut}</span>
+        ) : null}
+      </button>
+    );
+  };
+
   return createPortal(
     <div
       ref={listRef}
@@ -217,91 +327,29 @@ function MenuList({
       data-slot="menu"
       style={style}
       onKeyDown={onKeyDown}
-      className="z-50 min-w-48 rounded-lg border bg-card p-1 text-sm text-foreground shadow-lg"
+      className="z-50 max-h-[calc(100vh-8px)] min-w-48 overflow-y-auto rounded-lg border bg-card p-1 text-sm text-foreground shadow-lg"
     >
-      {entries.map((entry) => {
-        if (entry.kind === "separator") {
-          // biome-ignore lint/a11y/useSemanticElements: a menu separator is not focusable, so it cannot be an <hr> in a menu.
-          return <div key={entry.id} role="separator" className="my-1 h-px bg-border" />;
-        }
-        if (entry.kind === "submenu") {
-          const open = sub?.id === entry.id;
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              role="menuitem"
-              aria-haspopup="menu"
-              aria-expanded={open}
-              aria-disabled={entry.disabled || undefined}
-              title={entry.title}
-              tabIndex={-1}
-              data-menu-id={entry.id}
-              onClick={(e) => {
-                if (entry.disabled) return;
-                if (open) setSub(null);
-                else openSubmenu(entry, e.currentTarget);
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left outline-none focus-visible:bg-neutral-tint hover:bg-neutral-tint",
-                entry.disabled && "text-text-muted",
-              )}
-            >
-              <span className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-              <Icon name="chevron-right" className="size-3.5" />
-            </button>
-          );
-        }
-        if (entry.kind === "heading") {
-          return (
+      {segmentsOf(entries).map((segment) =>
+        segment.kind === "entry" ? (
+          renderEntry(segment.entry)
+        ) : (
+          // biome-ignore lint/a11y/useSemanticElements: a <fieldset> is not allowed inside role="menu"; the group is named by its heading.
+          <div
+            key={segment.heading.id}
+            role="group"
+            aria-labelledby={`${headingPrefix}-${segment.heading.id}`}
+          >
             <div
-              key={entry.id}
+              id={`${headingPrefix}-${segment.heading.id}`}
               role="presentation"
               className="px-3 py-1 text-xs font-semibold text-text-muted"
             >
-              {entry.label}
+              {segment.heading.label}
             </div>
-          );
-        }
-        const role =
-          entry.kind === "check"
-            ? "menuitemcheckbox"
-            : entry.kind === "radio"
-              ? "menuitemradio"
-              : "menuitem";
-        const checked = entry.kind === "item" ? undefined : entry.checked;
-        return (
-          // biome-ignore lint/a11y/useAriaPropsSupportedByRole: `role` is a variable (menuitemcheckbox or menuitemradio) when `checked` is set.
-          <button
-            key={entry.id}
-            type="button"
-            role={role}
-            aria-checked={checked}
-            aria-disabled={entry.disabled || undefined}
-            title={entry.title}
-            tabIndex={-1}
-            data-menu-id={entry.id}
-            onClick={() => {
-              if (entry.disabled) return;
-              onClose(true);
-              entry.onSelect();
-            }}
-            className={cn(
-              "flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left outline-none focus-visible:bg-neutral-tint hover:bg-neutral-tint",
-              entry.disabled && "text-text-muted",
-            )}
-          >
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              {checked ? <Icon name="check" className="size-3.5" /> : null}
-            </span>
-            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
-            {entry.shortcut ? (
-              <span className="ml-4 shrink-0 text-xs text-text-muted">{entry.shortcut}</span>
-            ) : null}
-          </button>
-        );
-      })}
+            {segment.entries.map(renderEntry)}
+          </div>
+        ),
+      )}
       {sub ? <SubmenuList entries={entries} sub={sub} onClose={onClose} onBack={backTo} /> : null}
     </div>,
     document.body,

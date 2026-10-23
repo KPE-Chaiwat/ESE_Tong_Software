@@ -23,14 +23,8 @@ function configOf(patch: Partial<PollConfig> = {}): PollConfig {
     name: "Tank 1",
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
     active: true,
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -76,7 +70,7 @@ describe("initial state and applyFromConfig", () => {
       .getState()
       .applyFromConfig(configOf({ scale: mA, scaleOverrides: o, valueColumns: "both" }));
     expect(store.getState()).toMatchObject({ scale: mA, overrides: o, valueColumns: "both" });
-    expect(store.getState().display).toMatchObject({ format: "unsigned", addressBase: 0 });
+    expect(store.getState().display).toMatchObject({ addressBase: 0 });
   });
 
   it("with FC01 or FC02 the scale is inactive but kept", () => {

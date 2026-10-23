@@ -9,10 +9,11 @@ import {
   aliasError,
   aliasMap,
   mergeAliases,
-  parseAliasPaste,
+  parseAliasPasteAt,
   pasteToastText,
 } from "../lib/alias";
-import { isCombinedFormat, registerWidth } from "../lib/combined";
+import { type FormatRow, rowAt, rowsOfConfig } from "../lib/format-overrides";
+import { registerLines } from "../lib/register-lines";
 
 export type AliasEditStart = "f2" | "dblclick" | "menu";
 /** How the editor was left: `Enter`, `Shift+Enter`, `Tab` or a blur. */
@@ -53,7 +54,10 @@ export interface AliasActions {
   cancel(): void;
   /** "Clear alias": removes the aliases of these addresses in one command. */
   clear(addresses: readonly number[]): Promise<void>;
-  /** Pastes clipboard text onto consecutive addresses from `startAddress`, in one command. */
+  /**
+   * Pastes clipboard text, one line per row, from the row that contains `startAddress` (a 32/64-bit
+   * group is one row and takes the alias of its first register), in one command.
+   */
   paste(text: string, startAddress: number): Promise<AliasPasteResult | null>;
 }
 
@@ -63,15 +67,11 @@ export type AliasStoreApi = StoreApi<AliasStore>;
 export interface AliasStoreDeps {
   /** The applied poll: its range and its alias list. */
   getConfig(): PollConfig | null;
+  /** The rows of the poll, in address order (default: derived from the config). */
+  getRows?(): readonly FormatRow[];
   /** `pollStore.setView`: sends the aliases with `setPollView` and applies them optimistically. */
   setView(partial: { aliases: AliasEntry[] }): Promise<boolean>;
   toasts: ToastStoreApi;
-}
-
-function rangeOf(config: PollConfig | null): { start: number; end: number } | null {
-  if (!config) return null;
-  const { startAddress, quantity } = config.definition;
-  return { start: startAddress, end: startAddress + quantity - 1 };
 }
 
 function sameAliases(a: ReadonlyMap<number, string>, entries: readonly AliasEntry[]): boolean {
@@ -90,6 +90,9 @@ export function createAliasStore(deps: AliasStoreDeps): AliasStoreApi {
     }
 
     const current = (): readonly AliasEntry[] => deps.getConfig()?.aliases ?? [];
+    const rows = (): readonly FormatRow[] =>
+      deps.getRows ? deps.getRows() : rowsOfConfig(deps.getConfig());
+    const addresses = (): number[] => registerLines(rows()).map((line) => line.address);
 
     return {
       aliases: new Map(),
@@ -102,10 +105,16 @@ export function createAliasStore(deps: AliasStoreDeps): AliasStoreApi {
       },
 
       beginEdit(address, by) {
-        const range = rangeOf(deps.getConfig());
-        if (!range || address < range.start || address > range.end) return;
+        const list = rows();
+        const row = list[rowAt(list, address)];
+        if (!row) return;
         set({
-          editing: { address, text: get().aliases.get(address) ?? "", error: null, startedBy: by },
+          editing: {
+            address,
+            text: get().aliases.get(address) ?? "",
+            error: null,
+            startedBy: by,
+          },
         });
       },
 
@@ -140,34 +149,23 @@ export function createAliasStore(deps: AliasStoreDeps): AliasStoreApi {
           void send(merged.entries);
         }
 
-        const config = deps.getConfig();
-        const range = rangeOf(config);
-        const step =
-          config && config.definition.function >= 3 && isCombinedFormat(config.display.format)
-            ? registerWidth(config.display.format)
-            : 1;
-        const { address, startedBy } = editing;
-        if (key === "enter" && range && address + step <= range.end) {
+        // Enter and Shift+Enter move through the visible register lines.
+        const list = addresses();
+        const index = list.indexOf(editing.address);
+        const { startedBy } = editing;
+        const neighbour = (step: 1 | -1) => (index === -1 ? undefined : list[index + step]);
+        const next =
+          key === "enter" ? neighbour(1) : key === "shiftEnter" ? neighbour(-1) : undefined;
+        if (next !== undefined) {
           set({
             editing: {
-              address: address + step,
-              text: get().aliases.get(address + step) ?? "",
+              address: next,
+              text: get().aliases.get(next) ?? "",
               error: null,
               startedBy,
             },
           });
-          return "next";
-        }
-        if (key === "shiftEnter" && range && address - step >= range.start) {
-          set({
-            editing: {
-              address: address - step,
-              text: get().aliases.get(address - step) ?? "",
-              error: null,
-              startedBy,
-            },
-          });
-          return "prev";
+          return key === "enter" ? "next" : "prev";
         }
         set({ editing: null });
         return "end";
@@ -187,9 +185,10 @@ export function createAliasStore(deps: AliasStoreDeps): AliasStoreApi {
       },
 
       async paste(text, startAddress) {
-        const range = rangeOf(deps.getConfig());
-        if (!range) return null;
-        const parsed = parseAliasPaste(text, startAddress, range.end);
+        const list = addresses();
+        const from = list.indexOf(startAddress);
+        if (from === -1) return null;
+        const parsed = parseAliasPasteAt(text, list.slice(from));
         if (parsed.entries.length === 0 && parsed.skipped === 0 && parsed.beyond === 0) return null;
         const merged = mergeAliases(current(), parsed.entries);
         const pasted = parsed.entries.length - merged.dropped;

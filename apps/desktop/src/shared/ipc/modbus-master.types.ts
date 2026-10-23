@@ -28,6 +28,7 @@ export type {
   DetachReason,
   DisplaySettings,
   ExceptionCode,
+  FormatOverride,
   GridRect,
   LogicalPoint,
   LogicalRect,

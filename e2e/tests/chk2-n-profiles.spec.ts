@@ -1,7 +1,7 @@
 // CHK-002 section N and P: profiles v2 (save, open, migration notice, Cannot be opened, Modified
 // rules), invalid input messages in both hosts. File-level validation of schema 3, 17 polls, 2001
 // aliases, duplicate addresses and minimizedOrder is Rust's (`profiles_*`); the UI side is the row.
-import { expect, LAYOUT_SEED, Mm, STANDARD_8, test } from "../support/mm-fixtures";
+import { expect, fmt, LAYOUT_SEED, Mm, STANDARD_8, test } from "../support/mm-fixtures";
 
 interface SavedProfile {
   schemaVersion: number;
@@ -12,6 +12,7 @@ interface SavedProfile {
     definition: unknown;
     active: boolean;
     display: unknown;
+    formatOverrides: unknown;
     aliases: unknown;
     view: {
       host: string;
@@ -51,6 +52,7 @@ function essence(p: SavedProfile) {
       definition: x.definition,
       active: x.active,
       display: x.display,
+      formatOverrides: x.formatOverrides,
       aliases: x.aliases,
       host: x.view.host,
       open: x.view.open,
@@ -65,7 +67,7 @@ test.describe("N profiles v2", () => {
   test("CHK2-N1 (UI side) round trip: list order, display, aliases, rectangles, states, z-order, hosts, closed, compact, traffic", async ({ mm }) => {
     const specs = STANDARD_8.map((s, i) => ({
       ...s,
-      ...(i === 0 ? { display: { format: "hex" }, aliases: [{ address: 0, alias: "a0" }, { address: 1, alias: "a1" }, { address: 2, alias: "a2" }] } : {}),
+      ...(i === 0 ? { formatOverrides: [fmt(0, 9, "hex")], aliases: [{ address: 0, alias: "a0" }, { address: 1, alias: "a1" }, { address: 2, alias: "a2" }] } : {}),
       ...(i === 2 ? { display: { addressBase: 1 }, aliases: [{ address: 0, alias: "c0" }] } : {}),
     }));
     await mm.open({
@@ -203,7 +205,8 @@ test.describe("N profiles v2", () => {
         await mm.setup(a).getByRole("button", { name: "Apply", exact: true }).click();
       }],
       ["format change", async (a) => {
-        await mm.grid(a).focus();
+        // REQ-009: Ctrl+3 sets Hex on the selected rows (nothing happens without a target).
+        await mm.gridRow(a, 0).click();
         await page.keyboard.press("Control+3");
       }],
       ["alias commit", async (a) => {
@@ -262,7 +265,8 @@ test.describe("N profiles v2", () => {
           name: "Poll 1",
           definition: { slaveId: 3, function: 4, startAddress: 5, quantity: 6, scanRateMs: 500 },
           active: true,
-          display: { format: "signed", addressBase: 1, showAlias: true, copyAlias: false },
+          display: { addressBase: 1, showAlias: true, copyAlias: false },
+          formatOverrides: [fmt(5, 10, "signed")],
           scale: null,
           scaleOverrides: [],
           valueColumns: "raw",
@@ -330,7 +334,8 @@ test.describe("N profiles v2", () => {
           name,
           definition: { slaveId: 1, function: 3, startAddress: i * 10, quantity: 10, scanRateMs: 100 },
           active: true,
-          display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+          display: { addressBase: 0, showAlias: true, copyAlias: false },
+          formatOverrides: [],
           scale: null,
           scaleOverrides: [],
           valueColumns: "raw",
@@ -380,7 +385,8 @@ test.describe("N profiles v2", () => {
           name: "A",
           definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
           active: true,
-          display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+          display: { addressBase: 0, showAlias: true, copyAlias: false },
+          formatOverrides: [],
           scale: null,
           scaleOverrides: [],
           valueColumns: "raw",

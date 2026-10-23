@@ -97,7 +97,7 @@ describe("ARIA (DES-002 9)", () => {
       .filter((r) => r.getAttribute("aria-selected") === "true");
     expect(selected).toHaveLength(1);
     expect(g.getAttribute("aria-activedescendant")).toBe(selected[0]?.id);
-    expect(within(g).getAllByRole("columnheader").length).toBe(3);
+    expect(within(g).getAllByRole("columnheader").length).toBe(4);
   });
 
   it("the poll list has separate Show targets, checkboxes and menu buttons", async () => {

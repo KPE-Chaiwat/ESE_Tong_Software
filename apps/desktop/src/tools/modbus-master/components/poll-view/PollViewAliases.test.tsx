@@ -158,6 +158,7 @@ describe("alias editing (DES-002 2.3.5)", () => {
     const h = await threeRows();
     await h.user.dblClick(aliasCell(1));
     await h.user.keyboard("B{Shift>}{Enter}{/Shift}");
+    expect(h.rt.stores.alias.getState().editing?.address).toBe(0);
     expect(screen.getByRole("textbox", { name: "Alias for address 0" })).toBeInTheDocument();
     expect(aliasCell(1)).toHaveTextContent("B");
   });
@@ -226,14 +227,7 @@ describe("alias editing (DES-002 2.3.5)", () => {
   it("the Alias column is the first column and can be hidden", async () => {
     const h = await threeRows({
       poll: {
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: false,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: false, copyAlias: false },
       },
     });
     expect(rowOf(0).querySelector('[data-cell="alias"]')).toBeNull();
@@ -424,14 +418,7 @@ describe("copy with alias (DES-003 3.4)", () => {
         valueColumns: "both",
         scale: presetDefaults("current4to20"),
         aliases: [{ address: 0, alias: "PT-201" }],
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: true,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: true, copyAlias: true },
       },
     });
     await h.user.click(rawCell(0));

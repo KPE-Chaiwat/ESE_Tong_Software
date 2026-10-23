@@ -1,6 +1,7 @@
 // REPORT-017: real WebView2, calibrated long tasks and simulator wire cadence.
 import { execFileSync } from "node:child_process";
 import { expect, test } from "../integration/fixtures";
+import { formatFirstRegisters, type DialogFormat } from "../integration/format-dialog";
 import { openProfile, profileV2, writeProfile } from "../integration/profiles";
 import { RealMm } from "../integration/real-mm";
 import { esc } from "../support/mm";
@@ -181,26 +182,21 @@ test("CHK5-D2/CHK6-D1 125 registers at100ms, sixteen rules, all combined modes a
 		return data;
 	}
 	await capture("16 rules unsigned16", 12000);
+	// REQ-009: the poll-wide Interpretation section is gone. 124 of the 125 registers take the
+	// combined format through the Format dialog (a multiple of 2 and of 4); the last one stays Unsigned.
 	async function interpretation(
 		format: string,
 		swap: boolean,
 		reverse: boolean,
 	) {
-		if (!(await mm.setup(id).isVisible()))
-			await mm.titleButton(id, /^Poll setup/).click();
-		const section = mm
-			.setup(id)
-			.getByRole("region", { name: "Interpretation", exact: true });
-		await section
-			.getByLabel("Interpretation", { exact: true })
-			.selectOption(format);
-		await section
-			.getByLabel("Swap bytes within each register")
-			.setChecked(swap);
-		await section.getByLabel("Reverse register order").setChecked(reverse);
-		await section.getByRole("button", { name: "Apply interpretation" }).click();
-		await expect(section).toContainText("Applied:");
-		await mm.closeSetup(id);
+		await formatFirstRegisters(
+			mm.page,
+			mm.sub(id),
+			125,
+			124,
+			format as DialogFormat,
+			{ swapBytes: swap, reverseWords: reverse },
+		);
 	}
 	for (const format of formats)
 		for (const [swap, reverse] of [

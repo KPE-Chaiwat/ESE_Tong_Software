@@ -2,6 +2,7 @@
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import type {
   DisplaySettings,
+  FormatOverride,
   PollConfigInput,
   ScaleOverride,
   ScaleSettings,
@@ -34,14 +35,15 @@ const divide = (divisor: number, patch: Partial<ScaleSettings> = {}): ScaleSetti
   ...patch,
 });
 const display = (patch: Partial<DisplaySettings> = {}): DisplaySettings => ({
-  format: "unsigned",
   addressBase: 0,
   showAlias: true,
   copyAlias: false,
-  swapBytes: false,
-  reverseWords: false,
   ...patch,
 });
+/** A 16-bit format on the first `rows` registers (the old poll-wide format, now per row). */
+const allRows = (format: FormatOverride["format"], rows: number): FormatOverride[] => [
+  { start: 0, end: rows - 1, format, swapBytes: false, reverseWords: false },
+];
 
 const rowOf = (index: number): HTMLElement => {
   const el = document.querySelector<HTMLElement>(`[data-row="${index}"]`);
@@ -84,13 +86,13 @@ async function live(
 const text = (el: HTMLElement) => el.textContent;
 
 describe("columns and the Show control (DES-003 1.5, 3.3)", () => {
-  it("Both: the header reads Alias, Address (0-based), Raw (Unsigned), Scaled value", async () => {
+  it("Both: the header reads Alias, Address (0-based), Format, Raw, Scaled value", async () => {
     await live([0, 65535, 32768], { scale: mA, valueColumns: "both" });
     expect(
       within(grid())
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
-    ).toEqual(["Alias", "Address (0-based)", "Raw (Unsigned)", "Scaled"]);
+    ).toEqual(["Alias", "Address (0-based)", "Format", "Raw", "Scaled"]);
     expect(screen.getByRole("columnheader", { name: "Scaled value" })).toBeInTheDocument();
   });
 
@@ -114,7 +116,7 @@ describe("columns and the Show control (DES-003 1.5, 3.3)", () => {
       within(grid())
         .getAllByRole("columnheader")
         .map((c) => c.textContent),
-    ).toEqual(["Alias", "Address (0-based)", "Raw (Unsigned)"]);
+    ).toEqual(["Alias", "Address (0-based)", "Format", "Raw"]);
   });
 
   it("Scaled only: no Raw column", async () => {
@@ -192,7 +194,7 @@ describe("columns and the Show control (DES-003 1.5, 3.3)", () => {
 
 describe("format and scale together (CHK-003 B)", () => {
   it("B1: Hex raw next to a scaled value", async () => {
-    await live([32768], { scale: mA, valueColumns: "both", display: display({ format: "hex" }) });
+    await live([32768], { scale: mA, valueColumns: "both", formatOverrides: allRows("hex", 1) });
     expect(text(cellOf(0, "raw"))).toBe("0x8000");
     expect(text(cellOf(0, "scaled"))).toBe("12.00mA");
   });
@@ -201,7 +203,7 @@ describe("format and scale together (CHK-003 B)", () => {
     await live([65535], {
       scale: divide(10, { rawSigned: true }),
       valueColumns: "both",
-      display: display({ format: "binary" }),
+      formatOverrides: allRows("binary", 1),
     });
     expect(text(cellOf(0, "raw"))).toBe("1111 1111 1111 1111");
     expect(text(cellOf(0, "scaled"))).toBe("-0.1");
@@ -211,7 +213,7 @@ describe("format and scale together (CHK-003 B)", () => {
     await live([65535], {
       scale: divide(10),
       valueColumns: "both",
-      display: display({ format: "signed" }),
+      formatOverrides: allRows("signed", 1),
     });
     expect(text(cellOf(0, "raw"))).toBe("-1");
     expect(text(cellOf(0, "scaled"))).toBe("6553.5");
@@ -378,7 +380,7 @@ describe("copy (DES-003 3.4)", () => {
     const h = await selected({
       scale: mA,
       valueColumns: "both",
-      display: display({ format: "hex" }),
+      formatOverrides: allRows("hex", 2),
     });
     await h.user.pointer({ keys: "[MouseRight]", target: cellOf(0, "raw") });
     await h.user.click(screen.getByRole("menuitem", { name: "Copy with header" }));
@@ -427,7 +429,8 @@ describe("copy (DES-003 3.4)", () => {
       scale: mA,
       valueColumns: "both",
       aliases: [{ address: 0, alias: "PT-201" }],
-      display: display({ copyAlias: true, format: "hex" }),
+      display: display({ copyAlias: true }),
+      formatOverrides: allRows("hex", 2),
     });
     await h.user.keyboard("{Control>}c{/Control}");
     expect(h.copied[0]).toBe(

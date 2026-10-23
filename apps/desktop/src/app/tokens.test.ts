@@ -91,6 +91,8 @@ describe("design tokens (DES-001 6.1)", () => {
       "tools/modbus-master/components/workspace/MinimizedBar.tsx",
       // The write result chips (DES-001 2.5) and the scaled preview tint (DES-003 3.5).
       "tools/modbus-master/components/dialogs/WriteDialogView.tsx",
+      // DES-009 4.5: the warning box (tint and left border, with an icon and text) of the Format dialog.
+      "tools/modbus-master/components/poll-view/FormatDialog.tsx",
     ];
     const offenders = sourceFiles(srcDir)
       .filter((f) => /\.tsx$/.test(f) && !/\.test\.tsx$/.test(f))

@@ -35,14 +35,7 @@ describe("draftTexts and draftFromConfig", () => {
       scanRateMs: "1000",
     });
     const oneBased = config({
-      display: {
-        format: "unsigned",
-        addressBase: 1,
-        showAlias: true,
-        copyAlias: false,
-        swapBytes: false,
-        reverseWords: false,
-      },
+      display: { addressBase: 1, showAlias: true, copyAlias: false },
     });
     expect(draftTexts(oneBased).startAddress).toBe("1");
   });

@@ -1,5 +1,5 @@
 //! Persisted value rules; numeric evaluation remains in the frontend.
-use crate::ValueFormat;
+use crate::{FormatOverride, ValueFormat};
 use serde::{Deserialize, Deserializer, Serialize};
 use ts_rs::TS;
 
@@ -164,12 +164,48 @@ fn threshold(text: &str, integer: bool) -> Result<Threshold, &'static str> {
     Ok(Threshold::Decimal(value))
 }
 
-/// Validate all rules, including disabled rules, against the stored interpretation.
+/// The formats a rule range (all addresses when `None`) can meet: the default `Unsigned`
+/// when an address of the range has no override, then the format of each intersecting
+/// override in `start` order.
+fn formats_met(range: Option<&ValueColorRange>, overrides: &[FormatOverride]) -> Vec<ValueFormat> {
+    let (lo, hi) = range.map_or((0, u16::MAX), |r| (r.start, r.end));
+    let mut hits: Vec<&FormatOverride> = overrides
+        .iter()
+        .filter(|o| o.start <= hi && o.end >= lo)
+        .collect();
+    hits.sort_by_key(|o| (o.start, o.end));
+    // Walk the range; any gap means the default format is met.
+    let mut next = u32::from(lo);
+    let mut uncovered = false;
+    for o in &hits {
+        if u32::from(o.start) > next {
+            uncovered = true;
+        }
+        next = next.max(u32::from(o.end) + 1);
+    }
+    if next <= u32::from(hi) {
+        uncovered = true;
+    }
+    let mut formats = Vec::new();
+    if uncovered {
+        formats.push(ValueFormat::Unsigned);
+    }
+    for o in hits {
+        if !formats.contains(&o.format) {
+            formats.push(o.format);
+        }
+    }
+    formats
+}
+
+/// Validate all rules, including disabled rules, against every format each rule can meet
+/// (BE-009): the default `Unsigned` where its range has no override, plus every override
+/// intersecting its range (all overrides when the rule has no range).
 /// # Errors
 /// The first invalid field and its editor message.
 pub fn check_color_rules(
     rules: &[ValueColorRule],
-    format: ValueFormat,
+    overrides: &[FormatOverride],
 ) -> Result<(), ColorRuleProblem> {
     if rules.len() > MAX_COLOR_RULES {
         return Err(problem(
@@ -205,38 +241,55 @@ pub fn check_color_rules(
                 return Err(at("colors.foreground", "Choose a six-digit text color."));
             }
         }
-        let integer = matches!(format, ValueFormat::Signed64 | ValueFormat::Unsigned64)
-            && rule.source != ValueColorSource::Scaled;
         if rule.comparison == ValueColorComparison::Always {
             if !rule.threshold.is_empty() || rule.upper_threshold.is_some() {
                 return Err(at("threshold", "Always does not use a threshold."));
             }
             continue;
         }
-        let lower = threshold(&rule.threshold, integer).map_err(|m| at("threshold", m))?;
-        match (&rule.upper_threshold, rule.comparison) {
-            (None, ValueColorComparison::Between) => {
-                return Err(at("upperThreshold", "Between requires an upper threshold."))
+        // The per-format logic only distinguishes integer and decimal thresholds; check
+        // each mode once, in the order the formats are met.
+        let mut modes: Vec<bool> = Vec::with_capacity(2);
+        for format in formats_met(rule.range.as_ref(), overrides) {
+            let integer = matches!(format, ValueFormat::Signed64 | ValueFormat::Unsigned64)
+                && rule.source != ValueColorSource::Scaled;
+            if !modes.contains(&integer) {
+                modes.push(integer);
             }
-            (Some(upper), ValueColorComparison::Between) => {
-                let upper = threshold(upper, integer).map_err(|m| at("upperThreshold", m))?;
-                if upper < lower {
-                    return Err(at(
-                        "upperThreshold",
-                        "Upper threshold must be greater than or equal to lower threshold.",
-                    ));
-                }
-            }
-            (Some(_), _) => {
-                return Err(at(
-                    "upperThreshold",
-                    "Only Between accepts an upper threshold.",
-                ))
-            }
-            (None, _) => {}
+        }
+        for integer in modes {
+            check_thresholds(rule, integer, &at)?;
         }
     }
     Ok(())
+}
+
+fn check_thresholds(
+    rule: &ValueColorRule,
+    integer: bool,
+    at: &dyn Fn(&str, &'static str) -> ColorRuleProblem,
+) -> Result<(), ColorRuleProblem> {
+    let lower = threshold(&rule.threshold, integer).map_err(|m| at("threshold", m))?;
+    match (&rule.upper_threshold, rule.comparison) {
+        (None, ValueColorComparison::Between) => {
+            Err(at("upperThreshold", "Between requires an upper threshold."))
+        }
+        (Some(upper), ValueColorComparison::Between) => {
+            let upper = threshold(upper, integer).map_err(|m| at("upperThreshold", m))?;
+            if upper < lower {
+                return Err(at(
+                    "upperThreshold",
+                    "Upper threshold must be greater than or equal to lower threshold.",
+                ));
+            }
+            Ok(())
+        }
+        (Some(_), _) => Err(at(
+            "upperThreshold",
+            "Only Between accepts an upper threshold.",
+        )),
+        (None, _) => Ok(()),
+    }
 }
 
 /// Call only after validation, so trimming cannot hide invalid control characters.
@@ -254,6 +307,76 @@ pub fn normalize_color_rules(rules: &mut [ValueColorRule]) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn ov(start: u16, end: u16, format: ValueFormat) -> FormatOverride {
+        FormatOverride {
+            start,
+            end,
+            format,
+            swap_bytes: false,
+            reverse_words: false,
+        }
+    }
+
+    /// Every address uses `format` (the old poll-wide setting).
+    fn all(format: ValueFormat) -> Vec<FormatOverride> {
+        if format == ValueFormat::Unsigned {
+            Vec::new()
+        } else {
+            vec![ov(0, u16::MAX, format)]
+        }
+    }
+
+    #[test]
+    fn rules_are_checked_against_every_format_their_range_meets() {
+        let ranged = |text: &str, start, end| {
+            let mut r = rule(text);
+            r.range = Some(ValueColorRange { start, end });
+            r
+        };
+        let u64s = [ov(0, 3, ValueFormat::Unsigned64)];
+        let max = "18446744073709551615";
+        assert!(check_color_rules(&[ranged(max, 0, 3)], &u64s).is_ok());
+        // 0-4 also meets the default Unsigned at 4: still valid under both.
+        assert!(check_color_rules(&[ranged(max, 0, 4)], &u64s).is_ok());
+        let e = check_color_rules(&[ranged("1.5", 0, 3)], &u64s).unwrap_err();
+        assert_eq!(e.field, "colorRules[0].threshold");
+        assert_eq!(e.message, INTEGER_THRESHOLD_SYNTAX);
+        // 1.5 under 0-4 fails too (Unsigned64 part), but a range outside the override
+        // only meets the default.
+        assert!(check_color_rules(&[ranged("1.5", 0, 4)], &u64s).is_err());
+        assert!(check_color_rules(&[ranged("1.5", 4, 9)], &u64s).is_ok());
+        // No range: the default plus all overrides.
+        assert!(check_color_rules(&[rule("1.5")], &[]).is_ok());
+        assert!(check_color_rules(&[rule("1.5")], &u64s).is_err());
+        assert!(check_color_rules(&[rule("1.5")], &[ov(10, 11, ValueFormat::Float32)]).is_ok());
+        // Gaps between overrides meet the default; full coverage does not.
+        let pair = [
+            ov(0, 1, ValueFormat::Float32),
+            ov(4, 7, ValueFormat::Signed64),
+        ];
+        assert_eq!(
+            formats_met(Some(&ValueColorRange { start: 0, end: 1 }), &pair),
+            [ValueFormat::Float32]
+        );
+        assert_eq!(
+            formats_met(Some(&ValueColorRange { start: 0, end: 7 }), &pair),
+            [
+                ValueFormat::Unsigned,
+                ValueFormat::Float32,
+                ValueFormat::Signed64
+            ]
+        );
+        assert_eq!(
+            formats_met(Some(&ValueColorRange { start: 4, end: 7 }), &pair),
+            [ValueFormat::Signed64]
+        );
+        assert_eq!(
+            formats_met(None, &all(ValueFormat::Hex)),
+            [ValueFormat::Hex]
+        );
+        assert_eq!(formats_met(None, &[]), [ValueFormat::Unsigned]);
+    }
 
     fn rule(text: &str) -> ValueColorRule {
         ValueColorRule {
@@ -276,15 +399,15 @@ mod tests {
             background: "#17324D".into(),
             foreground: "#FFFFFF".into(),
         });
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned).is_ok());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned)).is_ok());
         let stored = serde_json::to_value(&r).unwrap();
         assert_eq!(stored["colors"]["background"], "#17324D");
         assert_eq!(serde_json::from_value::<ValueColorRule>(stored).unwrap(), r);
         r.colors.as_mut().unwrap().foreground = "#123456".into();
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned).is_ok());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned)).is_ok());
         r.colors.as_mut().unwrap().background = "red".into();
         assert_eq!(
-            check_color_rules(&[r], ValueFormat::Unsigned)
+            check_color_rules(&[r], &all(ValueFormat::Unsigned))
                 .unwrap_err()
                 .field,
             "colorRules[0].colors.background"
@@ -296,11 +419,11 @@ mod tests {
         let mut r = rule("");
         r.comparison = ValueColorComparison::Always;
         r.range = Some(ValueColorRange { start: 11, end: 11 });
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned).is_ok());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned)).is_ok());
         assert_eq!(serde_json::to_value(&r).unwrap()["comparison"], "always");
         r.threshold = "50".into();
         assert_eq!(
-            check_color_rules(&[r], ValueFormat::Unsigned)
+            check_color_rules(&[r], &all(ValueFormat::Unsigned))
                 .unwrap_err()
                 .field,
             "colorRules[0].threshold"
@@ -319,7 +442,7 @@ mod tests {
             "9007199254740993",
         ] {
             assert!(
-                check_color_rules(&[rule(text)], ValueFormat::Float64).is_ok(),
+                check_color_rules(&[rule(text)], &all(ValueFormat::Float64)).is_ok(),
                 "{text}"
             );
         }
@@ -327,12 +450,12 @@ mod tests {
             "1e999", "1e-999", "NaN", "1,5", "0x10", "", "1 2", "1e", ".", "1.2.3", "??",
         ] {
             assert!(
-                check_color_rules(&[rule(text)], ValueFormat::Float64).is_err(),
+                check_color_rules(&[rule(text)], &all(ValueFormat::Float64)).is_err(),
                 "{text}"
             );
         }
         assert!(
-            check_color_rules(&[rule(&"1".repeat(257))], ValueFormat::Unsigned)
+            check_color_rules(&[rule(&"1".repeat(257))], &all(ValueFormat::Unsigned))
                 .unwrap_err()
                 .message
                 .contains("256")
@@ -355,7 +478,7 @@ mod tests {
             "-1",
         ] {
             assert!(
-                check_color_rules(&[rule(text)], ValueFormat::Unsigned64).is_ok(),
+                check_color_rules(&[rule(text)], &all(ValueFormat::Unsigned64)).is_ok(),
                 "{text}"
             );
         }
@@ -367,31 +490,31 @@ mod tests {
             "1e3",
         ] {
             assert!(
-                check_color_rules(&[rule(text)], ValueFormat::Signed64).is_err(),
+                check_color_rules(&[rule(text)], &all(ValueFormat::Signed64)).is_err(),
                 "{text}"
             );
         }
         let mut r = rule("9007199254740993");
         r.comparison = ValueColorComparison::Between;
         r.upper_threshold = Some("9007199254740992".into());
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Signed64)
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Signed64))
             .unwrap_err()
             .field
             .ends_with("upperThreshold"));
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Float64).is_ok());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Float64)).is_ok());
         r.upper_threshold = Some(r.threshold.clone());
-        assert!(check_color_rules(&[r], ValueFormat::Signed64).is_ok());
+        assert!(check_color_rules(&[r], &all(ValueFormat::Signed64)).is_ok());
         let mut scaled = rule("1.5");
         scaled.source = ValueColorSource::Scaled;
-        assert!(check_color_rules(&[scaled], ValueFormat::Signed64).is_ok());
+        assert!(check_color_rules(&[scaled], &all(ValueFormat::Signed64)).is_ok());
     }
 
     #[test]
     fn list_names_ranges_and_nullable_fields_are_strict() {
-        assert!(check_color_rules(&[], ValueFormat::Unsigned).is_ok());
-        assert!(check_color_rules(&vec![rule("1"); 256], ValueFormat::Unsigned).is_ok());
+        assert!(check_color_rules(&[], &all(ValueFormat::Unsigned)).is_ok());
+        assert!(check_color_rules(&vec![rule("1"); 256], &all(ValueFormat::Unsigned)).is_ok());
         assert_eq!(
-            check_color_rules(&vec![rule("1"); 257], ValueFormat::Unsigned)
+            check_color_rules(&vec![rule("1"); 257], &all(ValueFormat::Unsigned))
                 .unwrap_err()
                 .field,
             "colorRules"
@@ -402,17 +525,17 @@ mod tests {
             start: 0,
             end: 65535,
         });
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned).is_ok());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned)).is_ok());
         r.name.push('?');
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned).is_err());
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned)).is_err());
         r.name = "High\n".into();
-        assert!(check_color_rules(&[r.clone()], ValueFormat::Unsigned)
+        assert!(check_color_rules(&[r.clone()], &all(ValueFormat::Unsigned))
             .unwrap_err()
             .message
             .contains("control"));
         r.name = "High".into();
         r.range = Some(ValueColorRange { start: 2, end: 1 });
-        assert!(check_color_rules(&[r], ValueFormat::Unsigned)
+        assert!(check_color_rules(&[r], &all(ValueFormat::Unsigned))
             .unwrap_err()
             .field
             .ends_with("range.end"));

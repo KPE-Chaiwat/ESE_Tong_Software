@@ -1,13 +1,11 @@
-import { memo } from "react";
+import { memo, useId } from "react";
 import { Icon } from "@/shared/ui/icon";
 import { SegmentedControl } from "@/shared/ui/segmented";
-import { isCombinedFormat } from "../../lib/combined";
-import { VALUE_FORMAT_LABELS, VALUE_FORMATS } from "../../lib/format";
+import { FORMAT_BUTTON_TITLE, SELECT_ROWS_FIRST } from "../../lib/format-messages";
 import { isBitFunction } from "../../lib/functions";
 import { SCALE_REGISTERS_ONLY } from "../../lib/scale-presets";
 import { effectiveValueColumns, scaleAvailable } from "../../lib/scaled";
-import { CombinedGrid } from "./CombinedGrid";
-import { usePoll, usePollViewRuntime } from "./context";
+import { usePoll, usePollUi, usePollViewRuntime } from "./context";
 import { DataGrid } from "./DataGrid";
 import { FreshnessSlot } from "./FreshnessSlot";
 import {
@@ -31,6 +29,9 @@ interface DataCardProps {
 export const DataCard = memo(function DataCard({ view, chipInput, wideHeader }: DataCardProps) {
   const { actions } = usePollViewRuntime();
   const config = usePoll((s) => s.config);
+  // The Format… button acts on the selection, or on the focused row when nothing is selected.
+  const hasTarget = usePollUi((s) => s.selection.length > 0 || s.focusAddress !== null);
+  const formatHint = useId();
   if (!config) {
     // The PV "loading (attach)" state.
     return (
@@ -47,6 +48,11 @@ export const DataCard = memo(function DataCard({ view, chipInput, wideHeader }: 
   const def = config.definition;
   const bits = isBitFunction(def.function);
   const scaleOn = scaleAvailable(config);
+  const formatHintText = bits
+    ? BITS_FORMAT_TOOLTIP
+    : hasTarget
+      ? FORMAT_BUTTON_TITLE
+      : SELECT_ROWS_FIRST;
 
   return (
     <section
@@ -77,19 +83,23 @@ export const DataCard = memo(function DataCard({ view, chipInput, wideHeader }: 
               />
             </div>
             <div className="flex items-center gap-2">
-              <span>Raw format</span>
-              <SegmentedControl
-                aria-label="Raw format"
-                value={config.display.format}
-                onChange={(f) => void actions.setFormat(f)}
-                disabled={bits}
-                {...(bits ? { title: BITS_FORMAT_TOOLTIP } : {})}
-                options={VALUE_FORMATS.map((f, i) => ({
-                  value: f,
-                  label: VALUE_FORMAT_LABELS[f],
-                  title: `${VALUE_FORMAT_LABELS[f]} (Ctrl+${i + 1})`,
-                }))}
-              />
+              <button
+                type="button"
+                data-slot="format-button"
+                aria-disabled={bits || !hasTarget ? true : undefined}
+                aria-describedby={formatHint}
+                title={formatHintText}
+                onClick={() => {
+                  if (bits || !hasTarget) return;
+                  actions.openFormatDialog("header");
+                }}
+                className="inline-flex h-6 shrink-0 items-center rounded-pill border border-input bg-card px-2.5 text-xs font-semibold outline-none hover:bg-neutral-tint focus-ring aria-disabled:text-text-muted"
+              >
+                Format…
+              </button>
+              <span id={formatHint} className="sr-only">
+                {formatHintText}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span>Address</span>
@@ -115,16 +125,8 @@ export const DataCard = memo(function DataCard({ view, chipInput, wideHeader }: 
           <Icon name={view.empty.icon} className="size-6" />
           <p>{view.empty.text}</p>
         </div>
-      ) : !bits && isCombinedFormat(config.display.format) ? (
-        <CombinedGrid format={config.display.format} loading={view.loading} stale={view.stale} />
       ) : (
-        <DataGrid
-          rowCount={def.quantity}
-          startAddress={def.startAddress}
-          loading={view.loading}
-          stale={view.stale}
-          bits={bits}
-        />
+        <DataGrid loading={view.loading} stale={view.stale} bits={bits} />
       )}
     </section>
   );

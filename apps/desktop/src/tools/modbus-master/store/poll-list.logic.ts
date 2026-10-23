@@ -21,14 +21,8 @@ export function defaultPollInput(name: string): PollConfigInput {
   return {
     name,
     definition: defaultPollDefinition(),
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],

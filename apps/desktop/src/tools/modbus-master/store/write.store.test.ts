@@ -5,6 +5,7 @@ import {
 } from "@/shared/ipc/modbus-master.fake";
 import type {
   AddressBase,
+  FormatOverride,
   PollConfig,
   PollDefinition,
   ValueFormat,
@@ -17,11 +18,21 @@ let ipc: FakeModbusMasterIpc;
 let store: WriteStoreApi;
 let base: AddressBase;
 let format: ValueFormat;
+let overrides: FormatOverride[] | null;
 let linkUp: boolean;
 let poll: PollDefinition;
 let present: boolean;
 const POLL_ID = 7;
 const get = () => store.getState();
+
+/** A 16-bit format on every register of the poll (the old poll-wide format, now an override). */
+const row16 = (f: ValueFormat): FormatOverride => ({
+  start: poll.startAddress,
+  end: poll.startAddress + poll.quantity - 1,
+  format: f,
+  swapBytes: false,
+  reverseWords: false,
+});
 
 function config(): PollConfig {
   return {
@@ -29,14 +40,8 @@ function config(): PollConfig {
     name: "Tank 1",
     definition: poll,
     active: true,
-    display: {
-      format,
-      addressBase: base,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: base, showAlias: true, copyAlias: false },
+    formatOverrides: overrides ?? (format === "unsigned" ? [] : [row16(format)]),
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -49,6 +54,7 @@ beforeEach(() => {
   ipc = createFakeModbusMasterIpc();
   base = 0;
   format = "unsigned";
+  overrides = null;
   linkUp = true;
   present = true;
   poll = { slaveId: 3, function: 3, startAddress: 0, quantity: 10, scanRateMs: 1000 };
@@ -81,14 +87,63 @@ describe("openFor prefill (DES-001 S2)", () => {
     expect(get().draft.coil).toBe(false);
   });
 
-  it("an FC03 row prefills function 06 with the raw value in the table format", () => {
+  it("an FC03 row prefills function 06 with the raw value in the format of that row", () => {
     format = "hex";
-    get().openFor(POLL_ID, { address: 100, pollFunction: 3, slaveId: 1, raw: 1234 });
+    get().openFor(POLL_ID, { address: 5, pollFunction: 3, slaveId: 1, raw: 1234 });
     expect(get().draft).toMatchObject({
       function: "6",
-      address: "100",
+      address: "5",
       valueFormat: "hex",
       valueText: "0x04D2",
+    });
+  });
+
+  describe("per-row formats (DES-009 8.4)", () => {
+    const hexAt = (address: number): FormatOverride => ({
+      start: address,
+      end: address,
+      format: "hex",
+      swapBytes: false,
+      reverseWords: false,
+    });
+
+    it("a Hex row prefills 0x00A1 with the value format Hex, a neighbour stays Unsigned", () => {
+      overrides = [hexAt(1)];
+      get().openFor(POLL_ID, { address: 1, pollFunction: 3, slaveId: 3, raw: 0xa1 });
+      expect(get().draft).toMatchObject({ valueFormat: "hex", valueText: "0x00A1" });
+      get().openFor(POLL_ID, { address: 2, pollFunction: 3, slaveId: 3, raw: 0xa1 });
+      expect(get().draft).toMatchObject({ valueFormat: "unsigned", valueText: "161" });
+    });
+
+    it("a group row targets its first register, prefilled as Unsigned", () => {
+      overrides = [{ start: 2, end: 5, format: "float32", swapBytes: false, reverseWords: false }];
+      get().openFor(POLL_ID, { address: 2, pollFunction: 3, slaveId: 3, raw: 0x3f80 });
+      expect(get().draft).toMatchObject({
+        function: "6",
+        address: "2",
+        valueFormat: "unsigned",
+        valueText: "16256",
+      });
+    });
+
+    it("an incomplete first row of the poll (L3) targets its own address", () => {
+      poll = { slaveId: 3, function: 3, startAddress: 101, quantity: 4, scanRateMs: 1000 };
+      overrides = [
+        { start: 100, end: 101, format: "float32", swapBytes: false, reverseWords: false },
+      ];
+      get().openFor(POLL_ID, { address: 101, pollFunction: 3, slaveId: 3, raw: 7 });
+      expect(get().draft).toMatchObject({
+        address: "101",
+        valueFormat: "unsigned",
+        valueText: "7",
+      });
+    });
+
+    it("a coil poll starts Unsigned whatever the kept overrides say", () => {
+      poll = { slaveId: 3, function: 1, startAddress: 0, quantity: 8, scanRateMs: 1000 };
+      overrides = [hexAt(1)];
+      get().openFor(POLL_ID, { address: 1, pollFunction: 1, slaveId: 3, raw: 1 });
+      expect(get().draft.valueFormat).toBe("unsigned");
     });
   });
 

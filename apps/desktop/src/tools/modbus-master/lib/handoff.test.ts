@@ -8,7 +8,7 @@ const handoff = (patch: Partial<PollViewHandoffV1> = {}): PollViewHandoffV1 => (
   anchorAddress: 3,
   focusAddress: 5,
   topAddress: 2,
-  columnWidths: { alias: 160, address: 120, raw: 160, scaled: 160 },
+  columnWidths: { alias: 160, address: 120, format: 96, raw: 160, scaled: 160 },
   pollDraft: {
     name: "Tank",
     slaveId: "1",
@@ -58,5 +58,24 @@ describe("PollViewHandoffV1", () => {
     expect(
       parseHandoff(JSON.stringify({ ...handoff(), pollDraft: { name: "x", dirty: ["bogus"] } })),
     ).toBeNull();
+  });
+
+  it("accepts a handoff without the Format column width and ignores the removed keys", () => {
+    const old = {
+      ...handoff(),
+      columnWidths: { alias: 160, address: 120, raw: 160, scaled: 160 },
+      groupWidth: 2,
+      interpretationDraft: {
+        format: "float32",
+        swapBytes: false,
+        reverseWords: false,
+        error: null,
+      },
+    };
+    const parsed = parseHandoff(JSON.stringify(old));
+    expect(parsed).not.toBeNull();
+    expect(parsed?.columnWidths.format).toBeUndefined();
+    expect(parsed).not.toHaveProperty("groupWidth");
+    expect(parsed).not.toHaveProperty("interpretationDraft");
   });
 });

@@ -1,5 +1,5 @@
 // CHK-002 section G: closing a poll view (S6), "don't ask again", closing W1 (Save changes?).
-import { expect, test, type Mm, type PollSpec } from "../support/mm-fixtures";
+import { expect, fmt, test, type Mm, type PollSpec } from "../support/mm-fixtures";
 
 const KEEP = (name: string) => `Keep "${name}" on this connection, or delete it?`;
 const ACTIVE = "A kept poll keeps polling in the background.";
@@ -370,7 +370,7 @@ test.describe("G closing", () => {
     const [id] = (await connected(mm, [
       {
         name: "Poll 1",
-        display: { format: "hex" },
+        formatOverrides: [fmt(0, 9, "hex")],
         aliases: [{ address: 0, alias: "Tank top" }],
       },
       { name: "Poll 2" },

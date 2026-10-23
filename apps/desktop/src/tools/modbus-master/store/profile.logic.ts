@@ -30,6 +30,7 @@ export function contentSignature(c: ProfileContent): string {
         name: p.name,
         definition: p.definition,
         display: p.display,
+        formatOverrides: p.formatOverrides,
         colorRules: p.colorRules,
         scale: p.scale,
         scaleOverrides: p.scaleOverrides,

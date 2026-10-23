@@ -466,6 +466,7 @@ impl Actor {
                     name,
                     definition: src.definition.clone(),
                     display: src.display.clone(),
+                    format_overrides: src.format_overrides.clone(),
                     color_rules: src.color_rules.clone(),
                     scale: src.scale.clone(),
                     scale_overrides: src.scale_overrides.clone(),

@@ -13,7 +13,9 @@ use crate::modbus::{
     BadResponseDetail, BadResponseKind, ConnectionConfig, Counters, ExceptionCode, PollDefinition,
     PollUpdate, SessionReason, TrafficFrames,
 };
-use crate::view::{AliasEntry, DisplaySettings, ScaleOverride, ScaleSettings, ValueColumns};
+use crate::view::{
+    AliasEntry, DisplaySettings, FormatOverride, ScaleOverride, ScaleSettings, ValueColumns,
+};
 use crate::ValueColorRule;
 
 /// Runtime id of a poll: unique per session, never reused, not saved in profiles.
@@ -153,6 +155,8 @@ pub struct PollConfigInput {
     pub name: String,
     pub definition: PollDefinition,
     pub display: DisplaySettings,
+    /// At most 256, non-overlapping (any order on input; stored sorted by `start`).
+    pub format_overrides: Vec<FormatOverride>,
     pub color_rules: Vec<ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     /// At most 64.
@@ -173,6 +177,8 @@ pub struct PollConfig {
     /// Run intent (Resume = true, Pause = false). Never marks the profile modified.
     pub active: bool,
     pub display: DisplaySettings,
+    /// Sorted by `start`, non-overlapping. Addresses without one are Unsigned 16-bit.
+    pub format_overrides: Vec<FormatOverride>,
     pub color_rules: Vec<ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     pub scale_overrides: Vec<ScaleOverride>,
@@ -189,6 +195,10 @@ pub struct PollConfig {
 pub struct PollViewSettings {
     #[ts(optional)]
     pub display: Option<DisplaySettings>,
+    /// Missing = unchanged; `null` is rejected. Validated together with the rules.
+    #[serde(default, deserialize_with = "non_null_patch")]
+    #[ts(optional)]
+    pub format_overrides: Option<Vec<FormatOverride>>,
     #[serde(default, deserialize_with = "non_null_patch")]
     #[ts(optional)]
     pub color_rules: Option<Vec<ValueColorRule>>,

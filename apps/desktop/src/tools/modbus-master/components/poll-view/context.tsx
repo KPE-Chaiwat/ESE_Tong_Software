@@ -3,6 +3,7 @@ import { useStore } from "zustand";
 import type { PollViewRuntime } from "../../runtime/poll-view-runtime";
 import type { AliasStore } from "../../store/alias.store";
 import type { ConnectionStore } from "../../store/connection.store";
+import type { FormatDialogStore } from "../../store/format-dialog.store";
 import type { OverrideDialogStore } from "../../store/override-dialog.store";
 import type { PollStore } from "../../store/poll.store";
 import type { PollDataStore } from "../../store/poll-data.store";
@@ -46,6 +47,8 @@ export const useScaleDraft = <T,>(sel: (s: ScaleDraftStore) => T) =>
   useStore(usePollViewRuntime().stores.scaleDraft, sel);
 export const useOverrideDialog = <T,>(sel: (s: OverrideDialogStore) => T) =>
   useStore(usePollViewRuntime().stores.overrides, sel);
+export const useFormatDialog = <T,>(sel: (s: FormatDialogStore) => T) =>
+  useStore(usePollViewRuntime().stores.formatDialog, sel);
 export const usePollConnection = <T,>(sel: (s: ConnectionStore) => T) =>
   useStore(usePollViewRuntime().stores.connection, sel);
 

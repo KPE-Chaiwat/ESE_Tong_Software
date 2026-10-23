@@ -15,14 +15,8 @@ function config(id: number, patch: Partial<PollConfig> = {}): PollConfig {
     name: `Poll ${id}`,
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
     active: true,
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -55,55 +49,29 @@ describe("contentSignature (DES-002 6.1: what marks a profile modified)", () => 
       }),
     ],
     [
-      "the display format",
+      "a format override",
       config(1, {
-        display: {
-          format: "hex",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        formatOverrides: [
+          { start: 0, end: 1, format: "float32", swapBytes: false, reverseWords: true },
+        ],
       }),
     ],
     [
       "the address base",
       config(1, {
-        display: {
-          format: "unsigned",
-          addressBase: 1,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: true, copyAlias: false },
       }),
     ],
     [
       "the Alias column",
       config(1, {
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: false,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: false, copyAlias: false },
       }),
     ],
     [
       "Include alias in copy",
       config(1, {
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: true,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: true, copyAlias: true },
       }),
     ],
     ["an alias", config(1, { aliases: [{ address: 0, alias: "PT-201" }] })],

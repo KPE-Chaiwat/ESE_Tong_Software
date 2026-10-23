@@ -2,7 +2,7 @@ import { useId, useRef } from "react";
 import { KEEP_FOCUS_ON_PRESS } from "@/shared/lib/keep-focus";
 import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
-import { isCombinedFormat } from "../../lib/combined";
+import { scaleCombinedNote } from "../../lib/format-messages";
 import {
   OVERRIDE_OUTSIDE_POLL,
   rangeLabel,
@@ -145,6 +145,8 @@ export function ScaleSection() {
   const fields = useRef<Partial<Record<ScaleFieldName | "preset", HTMLElement | null>>>({});
   const overrideCount = usePollScale((s) => s.overrides.length);
   if (!config) return null;
+  // The 32/64-bit values of the poll have no scale (DES-009 8.1).
+  const combinedCount = runtime.rows().filter((row) => row.width > 1).length;
 
   const draft = stores.scaleDraft.getState();
   const hasScale = applied !== null && applied.preset !== "none";
@@ -173,14 +175,19 @@ export function ScaleSection() {
         </div>
         {active ? null : (
           <div className="flex flex-col gap-1 text-xs text-text-muted" data-testid="scale-inactive">
-            <p>
-              {isCombinedFormat(config.display.format)
-                ? "Scaling is unavailable for combined values. Saved scales apply again in 16-bit mode."
-                : SCALE_REGISTERS_ONLY}
-            </p>
+            <p>{SCALE_REGISTERS_ONLY}</p>
             {hasScale || overrideCount > 0 ? <p>{SCALE_KEPT_NOTE}</p> : null}
           </div>
         )}
+        {active && combinedCount > 0 ? (
+          <p
+            className="flex items-start gap-1 text-xs text-text-muted"
+            data-testid="scale-combined-note"
+          >
+            <Icon name="info" className="mt-px size-3.5 shrink-0" />
+            <span>{scaleCombinedNote(combinedCount)}</span>
+          </p>
+        ) : null}
         <form
           noValidate
           className="flex flex-col gap-2"

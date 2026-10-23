@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   type CombinedFormat,
-  combinedRows,
   combinedText,
   decodeCombined,
   orderedBytes,
@@ -69,16 +68,4 @@ describe("combined register interpretation", () => {
   ] as [CombinedFormat, number[], string][])("formats %s %j exactly", (format, words, expected) =>
     expect(combinedText(decodeCombined(words, format, normal))).toBe(expected),
   );
-  it("groups odd addresses and trailing words without accumulating incompatible snapshots", () => {
-    const rows = combinedRows(1, 5, [1, 2, 3, 4, 5], "unsigned32", normal);
-    expect(rows.map((row) => [row.address, row.endAddress, combinedText(row.value)])).toEqual([
-      [1, 2, "65538"],
-      [3, 4, "196612"],
-      [5, 5, "Incomplete"],
-    ]);
-    expect(
-      combinedRows(1, 5, [1, 2], "unsigned32", normal).every((row) => row.value.kind === "missing"),
-    ).toBe(true);
-    expect(combinedRows(65535, 1, [1], "float64", normal)[0]?.endAddress).toBe(65535);
-  });
 });

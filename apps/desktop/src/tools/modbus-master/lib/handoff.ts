@@ -49,7 +49,6 @@ const colorRuleSchema = z
   })
   .transform(({ colors, ...rule }) => (colors === undefined ? rule : { ...rule, colors }));
 export const handoffSchema = z.object({
-  groupWidth: z.number().int().min(1).max(4).optional(),
   inspectedGroupAddress: z.number().int().nullable().optional(),
   ruleDraft: z
     .object({
@@ -79,20 +78,13 @@ export const handoffSchema = z.object({
   columnWidths: z.object({
     alias: z.number(),
     address: z.number(),
+    /** Added with REQ-009; an older handoff has none and the default width applies. */
+    format: z.number().optional(),
     raw: z.number(),
     scaled: z.number(),
   }),
   pollDraft: pollDraftSchema.nullable(),
   scaleDraft: scaleDraftSchema.nullable(),
-  interpretationDraft: z
-    .object({
-      format: z.string(),
-      swapBytes: z.boolean(),
-      reverseWords: z.boolean(),
-      error: z.string().nullable(),
-    })
-    .nullable()
-    .optional(),
 });
 
 export type PollViewHandoffV1 = z.infer<typeof handoffSchema>;

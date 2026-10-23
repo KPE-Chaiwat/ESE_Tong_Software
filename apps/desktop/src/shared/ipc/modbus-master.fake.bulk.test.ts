@@ -75,14 +75,11 @@ describe("bulk fake contract", () => {
     const input = pollConfigInput({
       name: "Configured",
       aliases: [{ address: 0, alias: "Flow" }],
-      display: {
-        format: "unsigned32",
-        swapBytes: true,
-        reverseWords: true,
-        addressBase: 1,
-        showAlias: true,
-        copyAlias: true,
-      },
+      display: { addressBase: 1, showAlias: true, copyAlias: true },
+      formatOverrides: [
+        { start: 0, end: 3, format: "unsigned32", swapBytes: true, reverseWords: true },
+        { start: 4, end: 4, format: "hex", swapBytes: false, reverseWords: false },
+      ],
       colorRules: [
         {
           name: "High",

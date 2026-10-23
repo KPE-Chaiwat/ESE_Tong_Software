@@ -34,6 +34,8 @@ pub(crate) struct PollEntry {
     pub definition: PollDefinition,
     pub active: bool,
     pub display: DisplaySettings,
+    /// Sorted by `start`.
+    pub format_overrides: Vec<shared_types::FormatOverride>,
     pub color_rules: Vec<shared_types::ValueColorRule>,
     pub scale: Option<ScaleSettings>,
     pub scale_overrides: Vec<ScaleOverride>,
@@ -71,6 +73,7 @@ impl PollEntry {
             definition: self.definition.clone(),
             active: self.active,
             display: self.display.clone(),
+            format_overrides: self.format_overrides.clone(),
             color_rules: self.color_rules.clone(),
             scale: self.scale.clone(),
             scale_overrides: self.scale_overrides.clone(),

@@ -1,13 +1,15 @@
 // The shortcuts that belong to one poll view (DES-002 3.1, "scope SW" and the W2 column): the
-// format keys, the address base, the Show cycle and Write. Both hosts bind them to the view that
+// format keys (a 16-bit format on the selected rows, DES-009 section 5), the address base, the Show cycle and Write. Both hosts bind them to the view that
 // has the keyboard scope: W1 to the focused or active sub-window, a native window to its own view.
-import type { ValueFormat } from "@/shared/ipc/modbus-master.types";
 import { isBitFunction } from "../lib/functions";
 import type { Binding } from "../lib/shortcuts";
 import { nextValueColumns } from "../store/poll-scale.logic";
 import type { PollViewRuntime } from "./poll-view-runtime";
 
-const FORMAT_KEYS: ReadonlyArray<readonly [string, ValueFormat]> = [
+/** The 16-bit formats of Ctrl+1 to Ctrl+4 (DES-009 section 5). */
+export type QuickFormat = "unsigned" | "signed" | "hex" | "binary";
+
+const FORMAT_KEYS: ReadonlyArray<readonly [string, QuickFormat]> = [
   ["ctrl+1", "unsigned"],
   ["ctrl+2", "signed"],
   ["ctrl+3", "hex"],
@@ -32,11 +34,12 @@ export function pollViewBindings(
   };
   const bindings: Binding[] = FORMAT_KEYS.map(([combo, format]) => ({
     combo,
+    // Only with something to act on: a selection or a focused row (otherwise the key passes through).
     when: () => {
       const view = getView();
-      return view !== undefined && registers(view);
+      return view !== undefined && registers(view) && view.formatScope().length > 0;
     },
-    run: () => void getView()?.actions.setFormat(format),
+    run: () => void getView()?.actions.setSelectedFormat(format),
   }));
   bindings.push(
     {

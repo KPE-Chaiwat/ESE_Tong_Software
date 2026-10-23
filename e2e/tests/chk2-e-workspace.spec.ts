@@ -597,7 +597,7 @@ test.describe("E workspace sub-windows", () => {
     await page.keyboard.press("Escape");
   });
 
-  test("CHK2-E13 narrow sub-window (< 720 px): 'Show' menu with Raw format, Address base, Alias column, Include alias in copy", async ({
+  test("CHK2-E13 narrow sub-window (< 720 px): 'Show' menu with Format of selected rows, Address base, Alias column, Include alias in copy", async ({
     mm,
     page,
   }) => {
@@ -617,14 +617,18 @@ test.describe("E workspace sub-windows", () => {
     await expect(mm.sub(narrow).getByRole("radiogroup")).toHaveCount(0);
     await showButton.click();
     const menu = page.getByRole("menu").last();
-    for (const heading of ["Show", "Raw format", "Address base"]) await expect(menu.getByText(heading, { exact: true })).toBeVisible();
+    for (const heading of ["Show", "Format of selected rows", "Address base"]) await expect(menu.getByText(heading, { exact: true })).toBeVisible();
     await expect(menu.getByRole("menuitemradio", { name: /^Raw/ }).first()).toBeVisible();
+    await expect(menu.getByRole("menuitemradio", { name: /^Hex/ })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: "More formats…" })).toBeVisible();
+    await expect(menu.getByRole("menuitem", { name: /Format \/ endian/ })).toHaveCount(0);
     await expect(menu.getByRole("menuitemcheckbox", { name: "Alias column" })).toBeVisible();
     await expect(menu.getByRole("menuitemcheckbox", { name: "Include alias in copy" })).toBeVisible();
     await page.keyboard.press("Escape");
     // The wide one shows the segmented controls and no menu.
     await expect(mm.sub(wide).getByRole("radiogroup", { name: "Show" })).toBeVisible();
-    await expect(mm.sub(wide).getByRole("radiogroup", { name: "Raw format" })).toBeVisible();
+    await expect(mm.sub(wide).getByRole("button", { name: "Format…" })).toBeVisible();
+    await expect(mm.sub(wide).getByRole("radiogroup", { name: "Raw format" })).toHaveCount(0);
     await expect(mm.sub(wide).getByRole("radiogroup", { name: "Address base" })).toBeVisible();
     await expect(mm.statusLine(wide).getByRole("button", { name: /^Show / })).toHaveCount(0);
   });

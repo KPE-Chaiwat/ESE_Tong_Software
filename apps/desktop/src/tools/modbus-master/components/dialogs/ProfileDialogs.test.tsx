@@ -213,7 +213,7 @@ describe("Open profile dialog (S3)", () => {
     });
     expect(screen.queryByText(/saved by an earlier version/)).not.toBeInTheDocument();
     const saved = h.ipc.callsOf("profilesSave").at(-1) as unknown[];
-    expect((saved[0] as { schemaVersion: number }).schemaVersion).toBe(5);
+    expect((saved[0] as { schemaVersion: number }).schemaVersion).toBe(6);
   });
 
   it("re-validates the connection after a load: a hand-edited value shows as invalid", async () => {
@@ -407,7 +407,7 @@ describe("Save profile as dialog (S4)", () => {
     expect(within(toolbar()).getByText("Boiler-PLC")).toBeVisible();
     expect(screen.queryByText("· Modified")).not.toBeInTheDocument();
     const saved = await h.ipc.profilesGet("Boiler-PLC");
-    expect(saved.schemaVersion).toBe(5);
+    expect(saved.schemaVersion).toBe(6);
     expect(saved.connection).toMatchObject({ mode: "tcp", host: "192.168.1.10" });
     expect(saved.polls.map((p) => p.name)).toEqual(["Tank 1"]);
     expect(h.ipc.callsOf("setProfileName").at(-1)).toEqual(["Boiler-PLC"]);

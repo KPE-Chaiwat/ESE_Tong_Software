@@ -4,7 +4,9 @@ import { Icon } from "@/shared/ui/icon";
 import { MenuButton, type MenuEntry } from "@/shared/ui/menu";
 import { StatusPill } from "@/shared/ui/status-pill";
 import { StatusStrip } from "@/shared/ui/status-strip";
-import { VALUE_FORMAT_LABELS, VALUE_FORMATS } from "../../lib/format";
+import { VALUE_FORMAT_LABELS } from "../../lib/format";
+import { QUICK_FORMATS, quickFormatState } from "../../lib/format-dialog-model";
+import { FORMAT_BUTTON_TITLE, SELECT_ROWS_FIRST } from "../../lib/format-messages";
 import { isBitFunction } from "../../lib/functions";
 import { SCALE_REGISTERS_ONLY } from "../../lib/scale-presets";
 import { effectiveValueColumns, scaleAvailable } from "../../lib/scaled";
@@ -15,7 +17,7 @@ import {
   statusLineStep,
 } from "../../lib/status-line";
 import { pollBannerFor, pollPillFor } from "../../store/poll.logic";
-import { usePoll, usePollConnection, usePollData, usePollViewRuntime } from "./context";
+import { usePoll, usePollConnection, usePollData, usePollUi, usePollViewRuntime } from "./context";
 import { FreshnessSlot } from "./FreshnessSlot";
 import {
   BITS_FORMAT_TOOLTIP,
@@ -43,10 +45,26 @@ const VALUE_COLUMN_ORDER = ["raw", "scaled", "both"] as const;
 
 /** The "Show {Both} ▾" menu of the narrow layout (DES-002 2.3.4). */
 function ShowMenu({ iconOnly }: { iconOnly: boolean }) {
-  const { actions } = usePollViewRuntime();
+  const runtime = usePollViewRuntime();
+  const { actions } = runtime;
   const config = usePoll((s) => s.config);
+  const hasTarget = usePollUi((s) => s.selection.length > 0 || s.focusAddress !== null);
+  // The checked format follows the target: render again when the selection or the focused row moves.
+  usePollUi((s) => s.selection);
+  usePollUi((s) => s.focusAddress);
   if (!config) return null;
   const bits = isBitFunction(config.definition.function);
+  // The format items act on the selection (the focused row when nothing is selected, DES-009 3.5).
+  const formatOff = bits || !hasTarget;
+  const formatTitle = bits
+    ? BITS_FORMAT_TOOLTIP
+    : hasTarget
+      ? FORMAT_BUTTON_TITLE
+      : SELECT_ROWS_FIRST;
+  // The checked item is the format the target (selection or focused row) shares, as in the row menu.
+  const quick = formatOff
+    ? { checked: null }
+    : quickFormatState({ scope: runtime.formatScope(), overrides: config.formatOverrides });
   const scaleOn = scaleAvailable(config);
   // A scale on a coil or discrete poll is ignored: the table shows the raw column only.
   const shown = effectiveValueColumns(config);
@@ -65,19 +83,27 @@ function ShowMenu({ iconOnly }: { iconOnly: boolean }) {
         onSelect: () => void actions.setValueColumns(value),
       }),
     ),
-    { kind: "heading", id: "h-format", label: "Raw format" },
-    ...VALUE_FORMATS.map(
+    { kind: "heading", id: "h-format", label: "Format of selected rows" },
+    ...QUICK_FORMATS.map(
       (format, i): MenuEntry => ({
         kind: "radio",
         id: `format-${format}`,
         label: VALUE_FORMAT_LABELS[format],
         shortcut: `Ctrl+${i + 1}`,
-        checked: config.display.format === format,
-        disabled: bits,
-        ...(bits ? { title: BITS_FORMAT_TOOLTIP } : {}),
-        onSelect: () => void actions.setFormat(format),
+        checked: quick.checked === format,
+        disabled: formatOff,
+        ...(formatOff ? { title: formatTitle } : {}),
+        onSelect: () => void actions.setSelectedFormat(format),
       }),
     ),
+    {
+      kind: "item",
+      id: "more-formats",
+      label: "More formats…",
+      disabled: formatOff,
+      ...(formatOff ? { title: formatTitle } : {}),
+      onSelect: () => void actions.openFormatDialog("showMenu"),
+    },
     { kind: "heading", id: "h-base", label: "Address base" },
     {
       kind: "radio",

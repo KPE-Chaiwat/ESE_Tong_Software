@@ -131,6 +131,8 @@ export interface PollViewHarness {
   toasts: ToastStoreApi;
   connection: ConnectionStoreApi;
   copied: string[];
+  /** The polite announcements the view made (the window's announcer in the app). */
+  announced: string[];
   /** Sets the width of the poll view (the container query). */
   setWidth(width: number): void;
   /** With `inFrame`: sets the real width of the frame element around the view (borders included). */
@@ -158,6 +160,8 @@ export interface HarnessOptions {
   inFrame?: boolean;
   hostActions?: PollHostActions;
   createScaled?: ScaledProviderFactory;
+  /** Holds the window's modal lock while a dialog of the view is open; returns the release. */
+  lockModal?: () => () => void;
   clipboard?: PollClipboard;
   scaleSection?: ReactNode;
   /** Wraps the rendered view (a React ancestor, for event bubbling tests). */
@@ -179,6 +183,7 @@ export async function renderPollView(options: HarnessOptions = {}): Promise<Poll
   const ipc = createFakeModbusMasterIpc({ mode: options.mode ?? "virtual" });
   const toasts = createToastStore({ setTimer: () => 0, clearTimer: () => {} });
   const copied: string[] = [];
+  const announced: string[] = [];
   const connection = createConnectionStore({
     ipc,
     role: host === "native" ? "poll" : "window",
@@ -211,6 +216,7 @@ export async function renderPollView(options: HarnessOptions = {}): Promise<Poll
     connection,
     toasts,
     getOtherNames: options.getOtherNames ?? (() => []),
+    announce: (text) => announced.push(text),
     clipboard: options.clipboard ?? {
       writeText: async (t) => {
         copied.push(t);
@@ -219,6 +225,7 @@ export async function renderPollView(options: HarnessOptions = {}): Promise<Poll
     },
     ...(options.hostActions ? { hostActions: options.hostActions } : {}),
     ...(options.createScaled ? { createScaled: options.createScaled } : {}),
+    ...(options.lockModal ? { lockModal: options.lockModal } : {}),
     warn: () => {},
   });
   live.push(rt);
@@ -232,6 +239,7 @@ export async function renderPollView(options: HarnessOptions = {}): Promise<Poll
     toasts,
     connection,
     copied,
+    announced,
     setWidth(width) {
       act(() => {
         for (const ro of ControlledResizeObserver.all) ro.fire(width);

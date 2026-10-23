@@ -967,7 +967,7 @@ async fn export_then_apply_round_trips() {
         .export_profile(Some("Boiler".into()), Some(tcp_config(502, 1000)), None)
         .await
         .unwrap();
-    assert_eq!(exported.schema_version, 5);
+    assert_eq!(exported.schema_version, 6);
     let names: Vec<&str> = exported.polls.iter().map(|p| p.name.as_str()).collect();
     assert_eq!(names, ["C", "A", "B"]);
     assert_eq!(exported.workspace.minimized_order, [1]);
@@ -1367,7 +1367,7 @@ async fn keep_drops_a_stored_handoff() {
 #[tokio::test(start_paused = true)]
 async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly() {
     use shared_types::{
-        DisplaySettings, ValueColorComparison, ValueColorHighlight, ValueColorRule,
+        FormatOverride, ValueColorComparison, ValueColorHighlight, ValueColorRule,
         ValueColorSource, ValueFormat,
     };
     let f = fixture();
@@ -1401,26 +1401,63 @@ async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly(
     let before = f.session.snapshot().await.unwrap().polls[0].config.clone();
     assert_eq!(before.color_rules[0].name, "Fraction");
     assert_eq!(before.color_rules[0].threshold, "1.5");
-    let display = DisplaySettings {
-        format: ValueFormat::Unsigned64,
-        swap_bytes: true,
-        reverse_words: true,
-        ..Default::default()
+    let ov = |start, end, format, swap_bytes, reverse_words| FormatOverride {
+        start,
+        end,
+        format,
+        swap_bytes,
+        reverse_words,
     };
+    let display = vec![ov(0, 3, ValueFormat::Unsigned64, true, true)];
     let count = view.events().len();
+    // Invalid overrides are rejected before anything changes.
+    for bad in [
+        vec![ov(0, 2, ValueFormat::Float32, false, false)],
+        vec![ov(0, 0, ValueFormat::Hex, true, false)],
+        vec![
+            ov(0, 3, ValueFormat::Float32, false, false),
+            ov(2, 5, ValueFormat::Float32, false, false),
+        ],
+    ] {
+        let error = f
+            .session
+            .set_poll_view(
+                id,
+                PollViewSettings {
+                    format_overrides: Some(bad),
+                    color_rules: Some(Vec::new()),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(error.to_string().starts_with("Format override"), "{error}");
+    }
+    assert_eq!(f.session.snapshot().await.unwrap().polls[0].config, before);
+    // Only formatOverrides: the stored rules (no range, so they also meet 0-3 Unsigned64)
+    // must fit, else nothing is applied.
     let error = f
         .session
         .set_poll_view(
             id,
             PollViewSettings {
-                display: Some(display.clone()),
+                format_overrides: Some(display.clone()),
                 has_unapplied_edits: Some(true),
                 ..Default::default()
             },
         )
         .await
         .unwrap_err();
-    assert!(error.to_string().contains("Rule \"Fraction\""));
+    match error {
+        SessionError::Validation(v) => {
+            assert_eq!(v.field, "colorRules");
+            assert_eq!(
+                v.message,
+                "Format not applied. Rule \"Fraction\" requires whole-number thresholds for 64-bit integers."
+            );
+        }
+        other => panic!("expected a validation error, got {other:?}"),
+    }
     assert_eq!(f.session.snapshot().await.unwrap().polls[0].config, before);
     assert_eq!(view.events().len(), count);
     assert!(!f.session.snapshot().await.unwrap().polls[0].has_unapplied_edits);
@@ -1430,7 +1467,7 @@ async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly(
         .set_poll_view(
             id,
             PollViewSettings {
-                display: Some(display.clone()),
+                format_overrides: Some(display.clone()),
                 color_rules: Some(exact.clone()),
                 ..Default::default()
             },
@@ -1442,7 +1479,7 @@ async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly(
         .set_poll_view(
             id,
             PollViewSettings {
-                display: Some(display),
+                format_overrides: Some(display.clone()),
                 color_rules: Some(exact.clone()),
                 ..Default::default()
             },
@@ -1459,7 +1496,46 @@ async fn interpretation_and_color_rules_commit_atomically_and_duplicate_exactly(
         .unwrap()
         .config;
     assert_eq!(copied.color_rules, exact);
-    assert!(copied.display.swap_bytes && copied.display.reverse_words);
+    assert_eq!(copied.format_overrides, display);
+    // Unsorted input is stored sorted; a colorRules-only patch is checked against the
+    // stored overrides.
+    let unsorted = vec![
+        ov(4, 4, ValueFormat::Hex, false, false),
+        ov(0, 3, ValueFormat::Unsigned64, true, true),
+    ];
+    f.session
+        .set_poll_view(
+            copy,
+            PollViewSettings {
+                format_overrides: Some(unsorted),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    let mut fraction = exact.clone();
+    fraction[0].threshold = "1.5".into();
+    assert!(f
+        .session
+        .set_poll_view(
+            copy,
+            PollViewSettings {
+                color_rules: Some(fraction),
+                ..Default::default()
+            },
+        )
+        .await
+        .is_err());
+    let snapshot = f.session.snapshot().await.unwrap();
+    let copied = &snapshot
+        .polls
+        .iter()
+        .find(|p| p.config.poll_id == copy)
+        .unwrap()
+        .config;
+    assert_eq!(copied.format_overrides[0].start, 0);
+    assert_eq!(copied.format_overrides[1].start, 4);
+    assert_eq!(copied.color_rules, exact);
     let mut profile = f
         .session
         .export_profile(Some("Rules".into()), Some(tcp_config(502, 1000)), None)

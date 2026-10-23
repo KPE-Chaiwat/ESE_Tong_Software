@@ -26,13 +26,15 @@ test("CHK5-A7 nonfinite and stale values never match Not equals", async ({
 			}),
 		id,
 	);
-	const section = mm
-		.setup(id)
-		.getByRole("region", { name: "Interpretation", exact: true });
-	await section
-		.getByLabel("Interpretation", { exact: true })
-		.selectOption("float32");
-	await section.getByRole("button", { name: "Apply interpretation" }).click();
+	// Rows 1-6 as three Float 32-bit values (REQ-009: the format is set on the selected rows).
+	await mm.gridRow(id, 0).click();
+	await mm.gridRow(id, 5).click({ modifiers: ["Shift"] });
+	await mm.gridRow(id, 0).click({ button: "right" });
+	await page.getByRole("menuitem", { name: "More formats…" }).click();
+	const format = page.getByRole("dialog", { name: "Format / endian" });
+	await format.getByRole("radio", { name: "Float 32-bit", exact: true }).check();
+	await format.getByRole("button", { name: "Apply", exact: true }).click();
+	await expect(format).toHaveCount(0);
 	await expect(mm.grid(id)).toContainText("+Infinity");
 	await expect(mm.grid(id)).toContainText("-Infinity");
 	await expect(mm.grid(id)).toContainText("NaN");

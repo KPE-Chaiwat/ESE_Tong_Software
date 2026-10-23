@@ -17,13 +17,20 @@ import { FieldMessage } from "@/shared/ui/field-message";
 import { Icon } from "@/shared/ui/icon";
 import { ContextMenu, type MenuEntry } from "@/shared/ui/menu";
 import { toDisplayAddress } from "../../lib/address";
+import { rangesContain } from "../../lib/address-ranges";
 import { matchRule } from "../../lib/color-rules";
+import { combinedText, rawWordsText } from "../../lib/combined";
 import { formatBit, formatValue, VALUE_FORMAT_LABELS } from "../../lib/format";
+import { QUICK_FORMATS, quickFormatState } from "../../lib/format-dialog-model";
+import { NO_SCALING_FOR_COMBINED } from "../../lib/format-messages";
+import { type FormatRow, formatCode, formatName, rowAt } from "../../lib/format-overrides";
+import { registerLines } from "../../lib/register-lines";
+import { groupValueOfWords } from "../../lib/row-value";
 import { rawToX } from "../../lib/scale-math";
 import { SCALE_REGISTERS_ONLY } from "../../lib/scale-presets";
 import { effectiveValueColumns, type ScaledProvider, scaleAvailable } from "../../lib/scaled";
 import { selectAliasAt, selectEditingAddress } from "../../store/alias.store";
-import { selectValueAt } from "../../store/poll-data.store";
+import { selectValueAt, selectWordsKey } from "../../store/poll-data.store";
 import { overridesTouching } from "../../store/poll-scale.logic";
 import {
   type ColumnId,
@@ -34,20 +41,29 @@ import {
 import { registerColorDraft, registerRuleDraft } from "../../store/rule-draft";
 import { ColumnResizeHandle, fitWidth } from "../ColumnResizeHandle";
 import { usePoll, usePollAlias, usePollData, usePollUi, usePollViewRuntime } from "./context";
-import { focusInterpretationFormat } from "./focus-interpretation";
-import { NO_SCALE_TITLE } from "./poll-view.logic";
+import { BITS_FORMAT_TOOLTIP, NO_SCALE_TITLE } from "./poll-view.logic";
 import { RuleMarker, ruleClass, ruleStyle } from "./RuleMarker";
 import { ScaledCellView } from "./ScaledCellView";
 
 const EMPTY_RULES: readonly ValueColorRule[] = [];
 export const ROW_HEIGHT = 24;
 
+/** The address cell text of a row: `4`, or `2–3` for a group (en dash, display base). */
+export function rowRangeText(row: FormatRow, base: 0 | 1): string {
+  return row.address === row.endAddress
+    ? String(toDisplayAddress(row.address, base))
+    : `${toDisplayAddress(row.address, base)}–${toDisplayAddress(row.endAddress, base)}`;
+}
+
 interface RowProps {
   index: number;
   top: number;
-  address: number;
+  row: FormatRow;
+  displayAddress: number;
+  continuation: boolean;
+  start: number;
+  quantity: number;
   base: 0 | 1;
-  format: import("@/shared/ipc/modbus-master.types").ValueFormat;
   bits: boolean;
   loading: boolean;
   stale: boolean;
@@ -61,6 +77,7 @@ interface RowProps {
   onRowDoubleClick: (address: number, e: ReactMouseEvent) => void;
   onRowContextMenu: (address: number, e: ReactMouseEvent) => void;
   onEditorDone: (refocus: boolean) => void;
+  onInspect: (address: number) => void;
 }
 
 /** The inline alias editor (DES-002 2.3.5). */
@@ -140,13 +157,19 @@ export function AliasEditor({
   );
 }
 
-/** One row. It selects only its own value, alias and flags, so an update that changes other rows leaves it alone. */
+/**
+ * One visible register line; combined values decode only on the group's first line. It selects
+ * only its own value or words, alias and flags, so an update that changes other rows leaves it alone.
+ */
 const Row = memo(function Row({
   index,
   top,
-  address,
+  row,
+  displayAddress,
+  continuation,
+  start,
+  quantity,
   base,
-  format,
   bits,
   loading,
   stale,
@@ -160,19 +183,54 @@ const Row = memo(function Row({
   onRowDoubleClick,
   onRowContextMenu,
   onEditorDone,
+  onInspect,
 }: RowProps) {
-  const raw = usePollData(selectValueAt(index));
-  const alias = usePollAlias(selectAliasAt(address));
-  const editing = usePollAlias((s) => s.editing?.address === address);
-  const selected = usePollUi(selectIsSelected(address));
+  const address = row.address;
+  const group = row.width > 1;
+  const offset = address - start;
+  // A group row reads its words, not its first register: -1 never has a value.
+  const raw = usePollData(selectValueAt(group ? -1 : offset));
+  const wordsKey = usePollData(
+    selectWordsKey(offset, group ? row.endAddress - row.address + 1 : 0, quantity),
+  );
+  const alias = usePollAlias(selectAliasAt(displayAddress));
+  const editing = usePollAlias((s) => s.editing?.address === displayAddress);
+  const selected = usePollUi(selectIsSelected(displayAddress));
   const focused = usePollUi(selectIsFocused(address));
-  const empty = loading || raw === undefined;
-  const cell = empty ? null : scaled(raw, address);
-  // The override marker belongs to the address, so it shows while there is no value yet too.
-  const overrideMarker = scaled.override?.(address) ?? cell?.override ?? null;
-  const rawShown = empty ? "—" : bits ? formatBit(raw) : formatValue(raw, format);
 
-  const rawNumeric = empty ? null : bits ? (raw ? 1 : 0) : rawToX(raw, format === "signed");
+  // ---- a group row: the value of its words ----
+  const words = !group || loading || wordsKey === null ? null : wordsKey.split(",").map(Number);
+  const groupValue = group && !continuation ? groupValueOfWords(row, words) : null;
+  const groupNumber =
+    groupValue?.value.kind === "integer" || groupValue?.value.kind === "float"
+      ? groupValue.value.value
+      : null;
+
+  // ---- a 16-bit row: the register in the format of the row ----
+  const empty = group
+    ? !continuation && groupValue?.value.kind === "missing"
+    : loading || raw === undefined;
+  const cell = group || empty || raw === undefined ? null : scaled(raw, address);
+  // The override marker belongs to the address, so it shows while there is no value yet too.
+  const overrideMarker = group ? null : (scaled.override?.(address) ?? cell?.override ?? null);
+  const rawShown = continuation
+    ? "--"
+    : group
+      ? combinedText(groupValue?.value ?? { kind: "missing" })
+      : empty || raw === undefined
+        ? "—"
+        : bits
+          ? formatBit(raw)
+          : formatValue(raw, row.format);
+
+  const rawNumeric =
+    group || empty || raw === undefined
+      ? null
+      : bits
+        ? raw
+          ? 1
+          : 0
+        : rawToX(raw, row.format === "signed");
   const scaledNumeric = cell?.numeric ?? null;
   const visibleScaled = cell?.text === "too large" ? null : scaledNumeric;
   const match = (column: "Raw" | "Scaled") =>
@@ -183,22 +241,45 @@ const Row = memo(function Row({
       displayed: column === "Raw" ? rawNumeric : visibleScaled,
       column,
       current: current && !stale && !empty,
-      format,
+      format: row.format,
     });
-  const rawMatch = match("Raw");
-  const scaledMatch = match("Scaled");
+  const rawMatch = continuation
+    ? null
+    : group
+      ? matchRule(rules, {
+          address,
+          raw: groupNumber,
+          scaled: null,
+          displayed: groupNumber,
+          column: "Interpreted",
+          current: current && !stale && !empty,
+          format: row.format,
+        })
+      : match("Raw");
+  const scaledMatch = group ? null : match("Scaled");
+  const rangeText = rowRangeText(row, base);
+  const incompleteText =
+    groupValue?.value.kind === "incomplete"
+      ? `Needs ${row.width} registers; only ${groupValue.value.available} available.`
+      : null;
+  const nonfinite = groupValue?.value.kind === "float" && !Number.isFinite(groupValue.value.value);
+  const wordsTitle =
+    group && groupValue && groupValue.words.length > 0
+      ? `Raw words: ${rawWordsText(groupValue.words)}`
+      : undefined;
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: keyboard selection is handled by the grid.
     <div
       role="row"
       id={`${gridId}-row-${index}`}
       data-row={index}
+      data-row-kind={continuation ? "continuation" : group ? "group" : "word"}
       aria-rowindex={index + 2}
       aria-selected={selected}
       data-focused={focused || undefined}
-      onClick={(e) => onRowClick(address, e)}
-      onDoubleClick={(e) => onRowDoubleClick(address, e)}
-      onContextMenu={(e) => onRowContextMenu(address, e)}
+      onClick={(e) => onRowClick(displayAddress, e)}
+      onDoubleClick={(e) => onRowDoubleClick(displayAddress, e)}
+      onContextMenu={(e) => onRowContextMenu(displayAddress, e)}
       style={{ position: "absolute", top, height: ROW_HEIGHT, left: 0, display: "flex" }}
       className={cn(
         "border-l-[3px] text-[13px] hover:bg-neutral-tint",
@@ -212,7 +293,7 @@ const Row = memo(function Row({
           return editing ? (
             <AliasEditor
               key={id}
-              address={address}
+              address={displayAddress}
               base={base}
               width={width}
               onDone={onEditorDone}
@@ -237,6 +318,11 @@ const Row = memo(function Row({
               role="gridcell"
               data-cell="address"
               style={{ width }}
+              {...(continuation
+                ? {
+                    "aria-label": `Register ${toDisplayAddress(displayAddress, base)}; continuation of value at register ${toDisplayAddress(row.address, base)}`,
+                  }
+                : {})}
               className="flex select-none items-center justify-end gap-1 truncate px-2 font-mono leading-6"
             >
               {overrideMarker ? (
@@ -244,7 +330,33 @@ const Row = memo(function Row({
                   <Icon name="sliders-horizontal" className="size-3 text-dark/75" />
                 </span>
               ) : null}
-              {toDisplayAddress(address, base)}
+              {toDisplayAddress(displayAddress, base)}
+            </div>
+          );
+        }
+        if (id === "format") {
+          return (
+            <div
+              key={id}
+              role="gridcell"
+              data-cell="format"
+              style={{ width }}
+              aria-label={
+                continuation
+                  ? `Continuation of ${formatName(row.format, row.order)} at register ${toDisplayAddress(row.address, base)}`
+                  : formatName(row.format, row.order)
+              }
+              title={
+                continuation
+                  ? `Continuation of ${formatName(row.format, row.order)} at register ${toDisplayAddress(row.address, base)}`
+                  : formatName(row.format, row.order)
+              }
+              className={cn(
+                "select-none truncate px-2 text-left font-mono leading-6",
+                continuation && "text-text-muted",
+              )}
+            >
+              {continuation ? "--" : formatCode(row.format, row.order)}
             </div>
           );
         }
@@ -254,15 +366,65 @@ const Row = memo(function Row({
               key={id}
               role="gridcell"
               data-cell="raw"
+              {...(wordsTitle ? { title: wordsTitle } : {})}
               style={{ width, ...ruleStyle(rawMatch) }}
               className={cn(
                 "select-none truncate px-2 text-right font-mono leading-6",
+                group && "flex items-center justify-end gap-1",
                 ruleClass(rawMatch),
                 (stale || empty) && "text-text-muted",
               )}
             >
               <RuleMarker match={rawMatch} />
-              {rawShown}
+              {group ? <span>{rawShown}</span> : rawShown}
+              {incompleteText ? (
+                <span role="img" aria-label={incompleteText} title={incompleteText}>
+                  <Icon name="info" className="inline size-3" />
+                </span>
+              ) : nonfinite ? (
+                <span role="img" aria-label="Nonfinite value" title="Nonfinite value">
+                  <Icon name="info" className="inline size-3" />
+                </span>
+              ) : null}
+              {group && !continuation ? (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  aria-label={`Inspect raw registers ${rangeText}`}
+                  title="Inspect raw registers"
+                  className="shrink-0 rounded p-0.5 text-dark/75 outline-none hover:bg-neutral-tint focus-ring"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onInspect(address);
+                  }}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                >
+                  <Icon name="info" className="size-3" />
+                </button>
+              ) : null}
+            </div>
+          );
+        }
+        if (group) {
+          return (
+            <div
+              key={id}
+              role="gridcell"
+              data-cell="scaled"
+              style={{ width }}
+              title={
+                continuation
+                  ? `Continuation of value at register ${toDisplayAddress(row.address, base)}`
+                  : NO_SCALING_FOR_COMBINED
+              }
+              aria-label={
+                continuation
+                  ? `Continuation of value at register ${toDisplayAddress(row.address, base)}`
+                  : NO_SCALING_FOR_COMBINED
+              }
+              className="select-none truncate px-2 text-right font-mono text-[13px] leading-6 text-text-muted"
+            >
+              {continuation ? "--" : "n/a"}
             </div>
           );
         }
@@ -282,8 +444,6 @@ const Row = memo(function Row({
 });
 
 interface DataGridProps {
-  rowCount: number;
-  startAddress: number;
   loading: boolean;
   stale: boolean;
   bits: boolean;
@@ -295,25 +455,19 @@ export type GridStatus = "live" | "stale" | "loading";
 const COLUMN_LABEL: Record<ColumnId, string> = {
   alias: "Alias",
   address: "Address",
+  format: "Format",
   raw: "Raw",
   scaled: "Scaled",
 };
 
 /**
- * Virtualized grid: Alias | Address | Raw | Scaled (DES-002 2.3.4). Hand-built ARIA grid on
- * `@tanstack/react-virtual` like the FE-001 data table: the columns are fixed and the rows render
- * one value each.
+ * Virtualized grid: Alias | Address | Format | Raw | Scaled (DES-002 2.3.4, DES-009 3.2). Hand-built
+ * ARIA grid on `@tanstack/react-virtual` like the FE-001 data table: the columns are fixed and a row
+ * is one polled register, including continuation lines of 32/64-bit values, in address order.
  */
-export const DataGrid = memo(function DataGrid({
-  rowCount,
-  startAddress,
-  loading,
-  stale,
-  bits,
-}: DataGridProps) {
+export const DataGrid = memo(function DataGrid({ loading, stale, bits }: DataGridProps) {
   const runtime = usePollViewRuntime();
   const { actions, hostActions, stores } = runtime;
-  useEffect(() => stores.ui.getState().setGroupWidth(1), [stores.ui]);
   const config = usePoll((s) => s.config);
   const current = usePoll((s) => s.state === "polling");
   const widths = usePollUi((s) => s.columnWidths);
@@ -324,25 +478,32 @@ export const DataGrid = memo(function DataGrid({
   // `address` is the row the menu was opened on: "Edit alias" edits that row, not the focused one.
   const [menu, setMenu] = useState<{ x: number; y: number; address: number | null } | null>(null);
 
+  const rows = runtime.rows();
+  const displayRows = useMemo(() => registerLines(rows), [rows]);
+  const rowCount = displayRows.length;
+  const start = config?.definition.startAddress ?? 0;
+  const quantity = config?.definition.quantity ?? 0;
   const showAlias = config?.display.showAlias ?? true;
   // A scale on a coil or discrete poll is kept and ignored: only the raw column shows.
   const valueColumns = config ? effectiveValueColumns(config) : "raw";
   const base = config?.display.addressBase ?? 0;
-  const format = config?.display.format ?? "unsigned";
   const columns = useMemo<ColumnId[]>(
     () => [
       ...(showAlias ? (["alias"] as const) : []),
       "address" as const,
+      ...(bits ? [] : (["format"] as const)),
       ...(valueColumns === "scaled" ? [] : (["raw"] as const)),
       ...(valueColumns === "raw" ? [] : (["scaled"] as const)),
     ],
-    [showAlias, valueColumns],
+    [showAlias, valueColumns, bits],
   );
   const scaleRef = config?.scale;
   const overridesRef = config?.scaleOverrides;
   // biome-ignore lint/correctness/useExhaustiveDependencies: the provider depends on the scale settings, which are read inside `runtime.scaled()`; it stays the same object while they do not change.
   const scaled = useMemo(() => runtime.scaled(), [runtime, scaleRef, overridesRef, base, bits]);
   const scaleOn = config ? scaleAvailable(config) : false;
+  const focusIndex =
+    focused === null ? -1 : displayRows.findIndex((line) => line.address === focused);
 
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -358,44 +519,41 @@ export const DataGrid = memo(function DataGrid({
   // biome-ignore lint/correctness/useExhaustiveDependencies: restored once on mount.
   useEffect(() => {
     const top = stores.ui.getState().topAddress;
-    if (top !== null && top >= startAddress && top < startAddress + rowCount) {
-      virtualizer.scrollToIndex(top - startAddress, { align: "start" });
-      restoredFor.current = `${focused}|${startAddress}|${rowCount}`;
+    const index = top === null ? -1 : displayRows.findIndex((line) => line.address === top);
+    if (index !== -1) {
+      virtualizer.scrollToIndex(index, { align: "start" });
+      restoredFor.current = `${focused}|${start}|${rowCount}`;
     }
   }, []);
 
   // Moving the focus brings its row into view, only when it is outside the viewport ("auto").
   useEffect(() => {
-    const key = `${focused}|${startAddress}|${rowCount}`;
+    const key = `${focused}|${start}|${rowCount}`;
     // Not on the restore itself: a second scroll would work from the virtualizer's stale offset and
     // undo the restored first row.
     if (restoredFor.current === key) return;
     restoredFor.current = null;
-    if (focused !== null && focused >= startAddress && focused < startAddress + rowCount) {
-      virtualizer.scrollToIndex(focused - startAddress, { align: "auto" });
-    }
-  }, [focused, startAddress, rowCount, virtualizer]);
+    if (focusIndex !== -1) virtualizer.scrollToIndex(focusIndex, { align: "auto" });
+  }, [focused, focusIndex, start, rowCount, virtualizer]);
 
   // The editor of the next row (Enter) opens in view.
   useEffect(() => {
-    if (
-      editingAddress !== null &&
-      editingAddress >= startAddress &&
-      editingAddress < startAddress + rowCount
-    ) {
-      virtualizer.scrollToIndex(editingAddress - startAddress, { align: "auto" });
-    }
-  }, [editingAddress, startAddress, rowCount, virtualizer]);
+    const index =
+      editingAddress === null
+        ? -1
+        : displayRows.findIndex((line) => line.address === editingAddress);
+    if (index !== -1) virtualizer.scrollToIndex(index, { align: "auto" });
+  }, [editingAddress, displayRows, virtualizer]);
 
-  // The first visible address is remembered for the next host (once per animation frame).
+  // The address of the first visible row is remembered for the next host (once per animation frame).
   const frame = useRef<number | null>(null);
   const onScroll = () => {
     if (frame.current !== null) return;
     frame.current = requestAnimationFrame(() => {
       frame.current = null;
       const el = scrollRef.current;
-      if (el)
-        stores.ui.getState().setTopAddress(startAddress + Math.floor(el.scrollTop / ROW_HEIGHT));
+      const first = el ? displayRows[Math.floor(el.scrollTop / ROW_HEIGHT)] : undefined;
+      if (first) stores.ui.getState().setTopAddress(first.address);
     });
   };
   useEffect(
@@ -410,6 +568,8 @@ export const DataGrid = memo(function DataGrid({
   // Stable identities: a new function would defeat the memo of every row on each update.
   const onRowClick = useCallback(
     (address: number, e: ReactMouseEvent) => {
+      // A click inside the alias editor is the editor's own: the row must not take the focus.
+      if ((e.target as HTMLElement).closest("input")) return;
       stores.ui.getState().click(address, { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey });
       focusGrid();
     },
@@ -417,6 +577,7 @@ export const DataGrid = memo(function DataGrid({
   );
   const onRowDoubleClick = useCallback(
     (address: number, e: ReactMouseEvent) => {
+      if ((e.target as HTMLElement).closest("input")) return;
       const onAlias = (e.target as HTMLElement).closest('[data-cell="alias"]') !== null;
       if (onAlias) actions.editAlias(address, "dblclick");
       else hostActions.write?.(address);
@@ -427,8 +588,7 @@ export const DataGrid = memo(function DataGrid({
     (address: number, e: ReactMouseEvent) => {
       e.preventDefault();
       const ui = stores.ui.getState();
-      const selected = ui.selection.some((r) => address >= r.start && address <= r.end);
-      if (!selected) ui.click(address);
+      if (!rangesContain(ui.selection, address)) ui.click(address);
       setMenu({ x: e.clientX, y: e.clientY, address });
     },
     [stores.ui],
@@ -439,26 +599,55 @@ export const DataGrid = memo(function DataGrid({
     },
     [focusGrid],
   );
+  const onInspect = useCallback(
+    (address: number) => stores.ui.getState().setInspectedGroupAddress(address),
+    [stores.ui],
+  );
 
   const autoFit = (id: string) => {
     const column = id as ColumnId;
     const data = stores.data.getState();
-    const visible = virtualizer.getVirtualItems();
     let longest = 4;
-    for (const v of visible) {
-      const address = startAddress + v.index;
+    for (const v of virtualizer.getVirtualItems()) {
+      const line = displayRows[v.index];
+      if (!line) continue;
+      const { row, continuation } = line;
+      const group = row.width > 1;
       if (column === "address")
-        longest = Math.max(longest, String(toDisplayAddress(address, base)).length);
+        longest = Math.max(longest, String(toDisplayAddress(line.address, base)).length);
       else if (column === "alias")
-        longest = Math.max(longest, (stores.alias.getState().aliases.get(address) ?? "").length);
-      else {
-        const raw = data.values?.[v.index];
+        longest = Math.max(
+          longest,
+          (stores.alias.getState().aliases.get(line.address) ?? "").length,
+        );
+      else if (column === "format")
+        longest = Math.max(
+          longest,
+          (continuation ? "--" : formatCode(row.format, row.order)).length,
+        );
+      else if (group) {
+        if (continuation) {
+          longest = Math.max(longest, column === "scaled" ? 2 : 2);
+          continue;
+        }
+        const snapshot = data.values?.length === quantity ? data.values : null;
+        const words = snapshot?.slice(row.address - start, row.endAddress - start + 1) ?? null;
+        const text =
+          column === "scaled"
+            ? "n/a"
+            : combinedText(groupValueOfWords(row, words).value) + (row.complete ? "" : " ⓘ");
+        longest = Math.max(longest, text.length);
+      } else {
+        const raw = data.values?.[row.address - start];
         if (raw !== undefined && column === "scaled") {
-          const cell = scaled(raw, address);
+          const cell = scaled(raw, row.address);
           if (cell)
             longest = Math.max(longest, cell.text.length + (cell.unit ? cell.unit.length + 1 : 0));
         } else if (raw !== undefined) {
-          longest = Math.max(longest, (bits ? formatBit(raw) : formatValue(raw, format)).length);
+          longest = Math.max(
+            longest,
+            (bits ? formatBit(raw) : formatValue(raw, row.format)).length,
+          );
         }
       }
     }
@@ -468,9 +657,7 @@ export const DataGrid = memo(function DataGrid({
   const openMenuAtFocus = () => {
     const el = scrollRef.current;
     const row =
-      focused === null
-        ? null
-        : el?.querySelector<HTMLElement>(`[data-row="${focused - startAddress}"]`);
+      focusIndex === -1 ? null : el?.querySelector<HTMLElement>(`[data-row="${focusIndex}"]`);
     const rect = (row ?? el)?.getBoundingClientRect();
     setMenu({
       x: (rect?.left ?? 0) + 24,
@@ -499,10 +686,10 @@ export const DataGrid = memo(function DataGrid({
         ui.moveFocus(-page, mods);
         break;
       case "Home":
-        ui.moveFocusTo(startAddress, mods);
+        ui.moveFocusTo(rows[0]?.address ?? start, mods);
         break;
       case "End":
-        ui.moveFocusTo(startAddress + rowCount - 1, mods);
+        ui.moveFocusTo(rows[rows.length - 1]?.address ?? start, mods);
         break;
       case "Enter":
         if (ui.focusAddress !== null) hostActions.write?.(ui.focusAddress);
@@ -539,12 +726,58 @@ export const DataGrid = memo(function DataGrid({
     [focusGrid],
   );
 
+  // What the menu acts on: the rows of the selection (the row menu selects its own row first).
+  const selection = stores.ui.getState().selection;
+  const selectedRows = menu === null ? [] : rows.filter((r) => rangesContain(selection, r.address));
+  const hasGroup = selectedRows.some((r) => r.width > 1);
+  const hasWord = selectedRows.some((r) => r.width === 1);
+  const menuRow = menu?.address == null ? undefined : rows[rowAt(rows, menu.address)];
   // "Remove scale override" is offered on rows inside an override (DES-003 3.2).
   const overridesInSelection =
-    menu !== null &&
-    !bits &&
-    overridesTouching(config?.scaleOverrides ?? [], stores.ui.getState().selection).length > 0;
+    menu !== null && !bits && overridesTouching(config?.scaleOverrides ?? [], selection).length > 0;
+  const copyScaledOff = !scaleOn || !hasWord;
+  const copyScaledTitle = copyScaledOff
+    ? !scaleOn
+      ? bits
+        ? SCALE_REGISTERS_ONLY
+        : NO_SCALE_TITLE
+      : NO_SCALING_FOR_COMBINED
+    : undefined;
+  // The Value format section (DES-010 10): the four 16-bit formats of Ctrl+1..4 on the same target as
+  // the shortcuts, checked when the target shares one of them, then `More formats…`. A coil or
+  // discrete poll has no formats: the entry stays, disabled, with the reason.
+  const moreFormats = (disabled: boolean): MenuEntry => ({
+    kind: "item",
+    id: "more-formats",
+    label: "More formats…",
+    disabled,
+    ...(disabled ? { title: BITS_FORMAT_TOOLTIP } : {}),
+    onSelect: () => void actions.openFormatDialog("grid", menu?.address ?? null),
+  });
+  const formatSection: MenuEntry[] = (() => {
+    if (bits || !config) return [moreFormats(true), { kind: "separator", id: "sep-format" }];
+    const { checked, heading } =
+      menu === null
+        ? { checked: null, heading: "Value format" }
+        : quickFormatState({ scope: runtime.formatScope(), overrides: config.formatOverrides });
+    return [
+      { kind: "heading", id: "h-format", label: heading },
+      ...QUICK_FORMATS.map(
+        (format, i): MenuEntry => ({
+          kind: "radio",
+          id: `format-${format}`,
+          label: VALUE_FORMAT_LABELS[format],
+          shortcut: `Ctrl+${i + 1}`,
+          checked: checked === format,
+          onSelect: () => void actions.setSelectedFormat(format),
+        }),
+      ),
+      moreFormats(false),
+      { kind: "separator", id: "sep-format" },
+    ];
+  })();
   const entries: MenuEntry[] = [
+    ...formatSection,
     {
       kind: "item",
       id: "edit-alias",
@@ -582,20 +815,30 @@ export const DataGrid = memo(function DataGrid({
       label: "Copy raw",
       onSelect: () => void actions.copyRows({ columns: "raw" }),
     },
+    ...(bits
+      ? []
+      : [
+          {
+            kind: "item",
+            id: "copy-registers",
+            label: "Copy raw registers",
+            onSelect: () => void actions.copyRows({ registers: true }),
+          } satisfies MenuEntry,
+        ]),
     {
       kind: "item",
       id: "copy-scaled",
       label: "Copy scaled",
-      disabled: !scaleOn,
-      ...(scaleOn ? {} : { title: bits ? SCALE_REGISTERS_ONLY : NO_SCALE_TITLE }),
+      disabled: copyScaledOff,
+      ...(copyScaledTitle ? { title: copyScaledTitle } : {}),
       onSelect: () => void actions.copyRows({ columns: "scaled" }),
     },
     {
       kind: "item",
       id: "copy-both",
       label: "Copy raw and scaled",
-      disabled: !scaleOn,
-      ...(scaleOn ? {} : { title: bits ? SCALE_REGISTERS_ONLY : NO_SCALE_TITLE }),
+      disabled: copyScaledOff,
+      ...(copyScaledTitle ? { title: copyScaledTitle } : {}),
       onSelect: () => void actions.copyRows({ columns: "both" }),
     },
     {
@@ -623,8 +866,12 @@ export const DataGrid = memo(function DataGrid({
       id: "set-scale",
       label: "Set scale for selected rows…",
       shortcut: "Ctrl+Shift+E",
-      disabled: bits,
-      ...(bits ? { title: SCALE_REGISTERS_ONLY } : {}),
+      disabled: bits || hasGroup,
+      ...(bits
+        ? { title: SCALE_REGISTERS_ONLY }
+        : hasGroup
+          ? { title: NO_SCALING_FOR_COMBINED }
+          : {}),
       onSelect: () => void actions.openOverrideForSelection(),
     },
     ...(overridesInSelection
@@ -637,10 +884,20 @@ export const DataGrid = memo(function DataGrid({
           } satisfies MenuEntry,
         ]
       : []),
+    ...(menuRow && menuRow.width > 1
+      ? [
+          {
+            kind: "item",
+            id: "inspect",
+            label: "Inspect raw registers",
+            onSelect: () => onInspect(menuRow.address),
+          } satisfies MenuEntry,
+        ]
+      : []),
     {
       kind: "item",
       id: "register-colors",
-      label: `Set colors for register ${toDisplayAddress(menu?.address ?? stores.ui.getState().focusAddress ?? startAddress, config?.display.addressBase ?? 0)}…`,
+      label: `Set colors for register ${toDisplayAddress(menu?.address ?? stores.ui.getState().focusAddress ?? start, config?.display.addressBase ?? 0)}…`,
       onSelect: () => {
         const address = menu?.address ?? stores.ui.getState().focusAddress;
         if (address === null) return;
@@ -673,16 +930,6 @@ export const DataGrid = memo(function DataGrid({
         );
       },
     },
-    {
-      kind: "item",
-      id: "format-endian",
-      label: "Format / endian…",
-      onSelect: () => {
-        const pollView = scrollRef.current?.closest('[data-slot="poll-view"]');
-        stores.ui.getState().setSetupOpen(true);
-        window.setTimeout(() => focusInterpretationFormat(pollView ?? null), 0);
-      },
-    },
     ...(hostActions.write
       ? [
           { kind: "separator", id: "sep-write" } satisfies MenuEntry,
@@ -701,12 +948,7 @@ export const DataGrid = memo(function DataGrid({
 
   const totalWidth = columns.reduce((n, id) => n + widths[id], 0) + 3;
   const baseLabel = `Address (${base}-based)`;
-  const headerLabel = (id: ColumnId): string =>
-    id === "address"
-      ? baseLabel
-      : id === "raw"
-        ? `Raw (${VALUE_FORMAT_LABELS[format]})`
-        : COLUMN_LABEL[id];
+  const headerLabel = (id: ColumnId): string => (id === "address" ? baseLabel : COLUMN_LABEL[id]);
 
   return (
     <>
@@ -716,11 +958,7 @@ export const DataGrid = memo(function DataGrid({
         aria-label="Register values"
         aria-rowcount={rowCount + 1}
         aria-multiselectable="true"
-        aria-activedescendant={
-          focused === null || focused < startAddress || focused >= startAddress + rowCount
-            ? undefined
-            : `${gridId}-row-${focused - startAddress}`
-        }
+        aria-activedescendant={focusIndex === -1 ? undefined : `${gridId}-row-${focusIndex}`}
         tabIndex={0}
         data-status={loading ? "loading" : stale ? "stale" : "live"}
         data-virtual-viewport=""
@@ -748,7 +986,7 @@ export const DataGrid = memo(function DataGrid({
                 {...(id === "scaled" ? { "aria-label": "Scaled value" } : {})}
                 className={cn(
                   "relative truncate px-2 leading-6",
-                  id === "alias" ? "text-left" : "text-right",
+                  id === "alias" || id === "format" ? "text-left" : "text-right",
                 )}
                 style={{ width: widths[id] }}
               >
@@ -765,29 +1003,37 @@ export const DataGrid = memo(function DataGrid({
             ))}
           </div>
           <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-            {virtualizer.getVirtualItems().map((item) => (
-              <Row
-                key={item.key}
-                index={item.index}
-                top={item.start}
-                address={startAddress + item.index}
-                base={base}
-                format={format}
-                bits={bits}
-                loading={loading}
-                stale={stale}
-                columns={columns}
-                widths={widths}
-                scaled={scaled}
-                gridId={gridId}
-                rules={config?.colorRules ?? EMPTY_RULES}
-                current={current}
-                onRowClick={onRowClick}
-                onRowDoubleClick={onRowDoubleClick}
-                onRowContextMenu={onRowContextMenu}
-                onEditorDone={onEditorDone}
-              />
-            ))}
+            {virtualizer.getVirtualItems().map((item) => {
+              const line = displayRows[item.index];
+              if (!line) return null;
+              return (
+                <Row
+                  key={item.key}
+                  index={item.index}
+                  top={item.start}
+                  row={line.row}
+                  displayAddress={line.address}
+                  continuation={line.continuation}
+                  start={start}
+                  quantity={quantity}
+                  base={base}
+                  bits={bits}
+                  loading={loading}
+                  stale={stale}
+                  columns={columns}
+                  widths={widths}
+                  scaled={scaled}
+                  gridId={gridId}
+                  rules={config?.colorRules ?? EMPTY_RULES}
+                  current={current}
+                  onRowClick={onRowClick}
+                  onRowDoubleClick={onRowDoubleClick}
+                  onRowContextMenu={onRowContextMenu}
+                  onEditorDone={onEditorDone}
+                  onInspect={onInspect}
+                />
+              );
+            })}
           </div>
         </div>
       </div>

@@ -292,14 +292,7 @@ describe("CHK-003 section A worked examples", () => {
       scale: example.scale,
       scaleOverrides: [],
       definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
-      display: {
-        format: "unsigned",
-        addressBase: 0,
-        showAlias: true,
-        copyAlias: false,
-        swapBytes: false,
-        reverseWords: false,
-      },
+      display: { addressBase: 0, showAlias: true, copyAlias: false },
     });
     const cell = provider(example.raw, 0);
     expect(cell?.text).toBe(example.text);

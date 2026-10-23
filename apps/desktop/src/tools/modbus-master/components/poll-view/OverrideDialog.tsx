@@ -12,27 +12,8 @@ import { SCALE_FIELDS, type ScaleFieldName } from "../../lib/scale-validation";
 import { wholeNumber } from "../../validation/schemas";
 import { describedBy, Field } from "../form/field";
 import { useOverrideDialog, usePoll, usePollData, usePollViewRuntime } from "./context";
+import { KEEP_INSIDE } from "./keep-inside";
 import { ScaleEditor } from "./ScaleEditor";
-
-type Stoppable = { stopPropagation(): void };
-const stop = (e: Stoppable) => e.stopPropagation();
-
-/**
- * The dialog sits in a portal, but React still bubbles its events to the sub-window frame behind
- * it. Pointer and context-menu events are stopped here. Keys are stopped too, except Tab: the
- * focus trap of the dialog (Radix FocusScope, an ancestor of this element) wraps the focus in its
- * own keydown handler and must see it (REV-007 m-1). The frame's capture handlers ignore events
- * that did not start inside the frame, so the keys that reach them are not the dialog's.
- */
-const KEEP_INSIDE = {
-  onKeyDown: (e: { key: string; stopPropagation(): void }) => {
-    if (e.key !== "Tab") e.stopPropagation();
-  },
-  onPointerDown: stop,
-  onClick: stop,
-  onContextMenu: stop,
-  onDoubleClick: stop,
-};
 
 function RangeMessage({ children }: { children: string }) {
   return (

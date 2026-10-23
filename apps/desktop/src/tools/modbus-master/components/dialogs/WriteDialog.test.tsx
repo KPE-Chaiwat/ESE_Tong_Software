@@ -562,3 +562,95 @@ describe("native poll window", () => {
     );
   });
 });
+
+describe("per-row formats (DES-009 8.4)", () => {
+  const over = (
+    start: number,
+    end: number,
+    format: "hex" | "float32",
+  ): NonNullable<PollConfigInput["formatOverrides"]>[number] => ({
+    start,
+    end,
+    format,
+    swapBytes: false,
+    reverseWords: false,
+  });
+
+  async function withValues(patch: Partial<PollConfigInput>, values: number[]): Promise<PollId> {
+    const id = await connected({ ...POLL, ...patch });
+    h.ipc.emitPollUpdate(id, { values });
+    return id;
+  }
+
+  it("Write from a Hex row prefills 0x00A1 in the format Hex; a neighbouring row stays Unsigned", async () => {
+    const id = await withValues(
+      { formatOverrides: [over(1, 1, "hex")] },
+      [0, 0xa1, 0xa1, 0, 0, 0, 0, 0, 0, 0],
+    );
+    await focusRow(id, 1);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    let d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Value")).toHaveValue("0x00A1");
+    fireEvent.keyDown(d, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await focusRow(id, 2);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Value")).toHaveValue("161");
+  });
+
+  it("Write from the group row 2-3 targets register 2 with its raw word as Unsigned, labelled as a raw register", async () => {
+    const id = await withValues(
+      { formatOverrides: [over(2, 5, "float32")] },
+      [0, 0, 0x3f80, 0, 0, 0, 0, 0, 0, 0],
+    );
+    // data-row 2 is the group row 2-3
+    await focusRow(id, 2);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Start address")).toHaveValue("2");
+    expect(within(d).getByLabelText("Raw register value (16-bit)")).toHaveValue("16256");
+    expect(
+      within(d).getByText(
+        "Writes send individual 16-bit registers. Combined values are not encoded.",
+      ),
+    ).toBeVisible();
+    // The dialog sends the raw word, nothing is encoded.
+    await h.user.click(within(d).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(h.ipc.callsOf("write")).toHaveLength(1));
+    expect(h.ipc.callsOf("write")[0]?.[0]).toMatchObject({
+      function: 6,
+      address: 2,
+      values: [16256],
+    });
+  });
+
+  it("the label and the note follow the address in the dialog, not the poll", async () => {
+    const id = await withValues({ formatOverrides: [over(2, 5, "float32")] }, Array(10).fill(1));
+    await focusRow(id, 1);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Value")).toBeVisible();
+    expect(within(d).queryByText(/Combined values are not encoded/)).not.toBeInTheDocument();
+    fireEvent.change(within(d).getByLabelText("Start address"), { target: { value: "4" } });
+    expect(within(d).getByLabelText("Raw register value (16-bit)")).toBeVisible();
+    expect(within(d).getByText(/Combined values are not encoded/)).toBeVisible();
+    fireEvent.change(within(d).getByLabelText("Start address"), { target: { value: "6" } });
+    expect(within(d).getByLabelText("Value")).toBeVisible();
+  });
+
+  it("the first row of a poll that starts inside a group targets its own address (L3)", async () => {
+    const id = await withValues(
+      {
+        definition: { slaveId: 5, function: 3, startAddress: 101, quantity: 4, scanRateMs: 100 },
+        formatOverrides: [over(100, 101, "float32")],
+      },
+      [7, 0, 0, 0],
+    );
+    await focusRow(id, 0);
+    fireEvent.keyDown(grid(id), { key: "Enter" });
+    const d = await screen.findByRole("dialog", { name: "Write · Pump 2" });
+    expect(within(d).getByLabelText("Start address")).toHaveValue("101");
+    expect(within(d).getByLabelText("Raw register value (16-bit)")).toHaveValue("7");
+  });
+});

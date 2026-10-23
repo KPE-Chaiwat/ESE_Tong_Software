@@ -11,6 +11,13 @@ entries move into a new version section (see "Versioning and changelog" in `docs
 
 ## [Unreleased]
 
+### Changed
+- Modbus Master: the register table now keeps one visible row per register for 32/64-bit values. The first row shows the decoded value and following rows show `--`, while retaining ESEfact's theme and fonts (REQ-012).
+- Modbus Master: a selected register or any length of selection can use a 32-bit or 64-bit display format. The Format dialog includes following poll registers to complete values, previews them, shows selection addresses in monospace, and explains any registers added or left 16-bit at the poll end (REQ-011).
+- Modbus Master: the Format dialog now shows what is selected (for example "Selected 10 registers (0-9)") and how many values each width gives. Byte and word order appear only for 32/64-bit formats, and a preview lists the resulting values from the latest reply before Apply. The value-row menu sets Unsigned, Signed, Hex or Binary directly (Ctrl+1..4 shown) and **More formats…** replaces **Format / endian…** (REQ-010; its selection-size restriction was superseded by REQ-011).
+- A new Modbus Master session now has "Auto-start polling" on, so a poll added while connected starts reading at once instead of waiting for Resume (Ctrl+P). It can still be switched off in the Connection menu, and a loaded profile keeps its own setting.
+- Modbus Master: **More formats…** in the value-row menu now opens a dialog that sets the format and byte order of the selected rows only, so one poll can mix 16-bit rows and 32/64-bit values in any combination. The poll-wide Interpretation section is removed, the "Raw format" header control becomes a **Format…** button and Ctrl+1..4 set a 16-bit format on the selected rows (Esc now keeps the focused row as their target). Profiles move to schema 6; older profiles show the same values as before, except a value cut at address 65535 (REQ-009; format selection behavior is updated by REQ-011).
+
 ## [0.2.0] - 2026-10-19
 
 Second pre-release build: several polls per connection, a workspace with sub-windows and

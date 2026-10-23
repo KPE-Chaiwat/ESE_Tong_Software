@@ -40,3 +40,9 @@ Thumbs.db
 
 # Claude Code local files (agent definitions stay on this machine)
 .claude/
+
+#local ticket files
+.ticket/
+
+# Local project documentation
+/docs/

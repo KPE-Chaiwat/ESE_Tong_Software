@@ -20,14 +20,18 @@
 import { arrangeNative } from "@/shared/lib/layout-math";
 import { restorePlacement } from "@/shared/lib/placement";
 import { IpcError } from "./errors";
+import { type LegacyProfile, migrateLegacyProfile } from "./fake-profile-migration";
 import { RequestScheduler } from "./fake-scheduler";
 import {
   checkAliasText,
   checkDefinition,
   checkDisplayShape,
+  checkFormatOverrides,
+  checkFormatOverridesShape,
   checkPollName,
   checkScale,
   checkScaleOverrides,
+  firstIntegerThresholdProblem,
   MAX_ALIASES,
   MAX_POLLS,
   MAX_POLLS_MESSAGE,
@@ -173,13 +177,11 @@ export function pollConfigInput(patch: Partial<PollConfigInput> = {}): PollConfi
     name: "Poll 1",
     definition: defaultDefinition(),
     display: {
-      format: "unsigned",
       addressBase: 0,
       showAlias: true,
       copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
     },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -379,7 +381,7 @@ export interface FakeModbusMasterIpc extends ModbusMasterIpc {
   ): void;
 
   // ---- scripting ----
-  seedProfiles(profiles: Profile[]): void;
+  seedProfiles(profiles: Array<Profile | LegacyProfile>): void;
   /** The next `connect` ends in `disconnected` with this reason (C3). */
   scriptConnectFailure(reason: SessionReason): void;
   /**
@@ -968,12 +970,19 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
   /** `validate_view_parts`: the first failing shape check of the display, scale, overrides or aliases. */
   const checkViewParts = (parts: {
     display?: PollConfigInput["display"] | undefined;
+    formatOverrides?: PollConfigInput["formatOverrides"] | undefined;
     scale?: PollConfigInput["scale"] | undefined;
     scaleOverrides?: PollConfigInput["scaleOverrides"] | undefined;
     aliases?: readonly AliasEntry[] | undefined;
   }): { field: string; message: string } | null => {
     const display = parts.display ? checkDisplayShape(parts.display) : null;
     if (display) return { field: "display", message: display };
+    if (parts.formatOverrides !== undefined) {
+      const shape = checkFormatOverridesShape(parts.formatOverrides);
+      if (shape) return { field: "formatOverrides", message: shape };
+      const problem = checkFormatOverrides(parts.formatOverrides);
+      if (problem) return { field: "formatOverrides", message: problem };
+    }
     const scale = parts.scale ? checkScale(parts.scale) : null;
     if (scale) return { field: "scale", message: scale };
     const overrides = parts.scaleOverrides ? checkScaleOverrides(parts.scaleOverrides) : null;
@@ -989,6 +998,27 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
   const checkView = (parts: Parameters<typeof checkViewParts>[0]): void => {
     const problem = checkViewParts(parts);
     if (problem) throw new IpcError(problem.message, "validation", problem.field);
+  };
+
+  /**
+   * The format-dependent part of `check_color_rules` (BE-009): a rule that can meet a 64-bit integer
+   * format needs whole-number thresholds. `rulesInPatch` tells whether the patch itself carries the
+   * rules; when only the overrides change, the backend words it as a format problem (BE-009 revision 2).
+   */
+  const checkRules = (
+    rules: PollConfig["colorRules"],
+    overrides: PollConfig["formatOverrides"],
+    rulesInPatch: boolean,
+  ): void => {
+    const problem = firstIntegerThresholdProblem(rules, overrides);
+    if (!problem) return;
+    if (rulesInPatch) throw new IpcError(problem.message, "validation", problem.field);
+    const name = rules[problem.index]?.name ?? "";
+    throw new IpcError(
+      `Format not applied. Rule "${name}" requires whole-number thresholds for 64-bit integers.`,
+      "validation",
+      "colorRules",
+    );
   };
 
   const blankRecord = (config: PollConfig, host: PollHostKind): PollRecord => ({
@@ -1019,7 +1049,14 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
   const newRecord = (input: PollConfigInput, host: PollHostKind): PollRecord => {
     const id = nextPollId;
     nextPollId += 1;
-    const r = blankRecord({ ...structuredClone(input), pollId: id, active: autoStartPoll }, host);
+    // Rust stores the format overrides sorted by start (BE-009).
+    const formatOverrides = structuredClone(input.formatOverrides).sort(
+      (a, b) => a.start - b.start || a.end - b.end,
+    );
+    const r = blankRecord(
+      { ...structuredClone(input), formatOverrides, pollId: id, active: autoStartPoll },
+      host,
+    );
     polls.set(id, r);
     return r;
   };
@@ -1070,7 +1107,10 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     nextPollId = stored.nextPollId;
     order = [...stored.order];
     for (const p of stored.polls) {
-      const r = blankRecord(p.config, p.host);
+      const r = blankRecord(
+        { ...p.config, formatOverrides: p.config.formatOverrides ?? [] },
+        p.host,
+      );
       r.open = p.open;
       r.workspace = p.workspace;
       r.native = p.native;
@@ -1314,7 +1354,9 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
     },
 
     seedProfiles(list) {
-      for (const profile of list) {
+      // A profile of an older schema is migrated the way the backend does on load (BE-009).
+      for (const raw of list) {
+        const profile = migrateLegacyProfile(raw);
         profiles.set(profile.name.toLowerCase(), { profile, modifiedAt: Date.now() });
       }
       persistNow();
@@ -1436,11 +1478,15 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
         checkDef(input.definition);
         checkView({
           display: input.display,
+          formatOverrides: input.formatOverrides,
           scale: input.scale,
           scaleOverrides: input.scaleOverrides,
           aliases: input.aliases,
         });
-        const r = newRecord(input, host);
+        // An input without `colorRules` (hand-written test and e2e inputs) has no rules.
+        const colorRules = input.colorRules ?? [];
+        checkRules(colorRules, input.formatOverrides, true);
+        const r = newRecord({ ...input, colorRules }, host);
         order.push(r.config.pollId);
         // PT0 is reported through `PollListChanged` only.
         if (active() && connection.state === "connected") startOrPause(r, true);
@@ -1587,11 +1633,21 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
         const editsBefore = r.hasUnappliedEdits;
         checkView({
           display: view.display,
+          formatOverrides: view.formatOverrides,
           scale: view.scale,
           scaleOverrides: view.scaleOverrides,
           aliases: view.aliases,
         });
+        // The prospective overrides and rules are validated together; nothing changes on a failure.
+        const nextOverrides = view.formatOverrides ?? r.config.formatOverrides;
+        const nextRules = view.colorRules ?? r.config.colorRules;
+        checkRules(nextRules, nextOverrides, view.colorRules !== undefined);
         if (view.colorRules !== undefined) r.config.colorRules = structuredClone(view.colorRules);
+        if (view.formatOverrides !== undefined) {
+          r.config.formatOverrides = structuredClone(view.formatOverrides).sort(
+            (a, b) => a.start - b.start || a.end - b.end,
+          );
+        }
         if (view.display !== undefined) r.config.display = { ...view.display };
         if (view.scale !== undefined) {
           r.config.scale = view.scale === null ? null : { ...view.scale };
@@ -1884,6 +1940,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
               name: p.name,
               definition: p.definition,
               display: p.display,
+              formatOverrides: p.formatOverrides,
               colorRules: p.colorRules,
               scale: p.scale,
               scaleOverrides: p.scaleOverrides,
@@ -1925,7 +1982,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
           throw new IpcError("There is no connection to save.", "validation", "connection");
         }
         return {
-          schemaVersion: 5,
+          schemaVersion: 6,
           name: name ?? profileName ?? "",
           connection: conn,
           autoStartPoll,
@@ -1949,6 +2006,7 @@ export function createFakeModbusMasterIpc(options: FakeOptions = {}): FakeModbus
               definition: { ...r.config.definition },
               active: r.config.active,
               display: { ...r.config.display },
+              formatOverrides: structuredClone(r.config.formatOverrides),
               colorRules: structuredClone(r.config.colorRules),
               scale: r.config.scale ? { ...r.config.scale } : null,
               scaleOverrides: structuredClone(r.config.scaleOverrides),

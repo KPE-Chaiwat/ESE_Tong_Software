@@ -15,6 +15,14 @@ interface DialogProps {
   initialFocus?: string;
   /** Called before Esc closes the dialog. Call `preventDefault()` to keep it open. */
   onEscapeKeyDown?: (event: KeyboardEvent) => void;
+  /** Ids (space separated) of the elements that describe the dialog: `aria-describedby` of the content. */
+  describedBy?: string;
+  /** Extra classes of the content element (opt-in layout: a column with its own scrolling region). */
+  contentClassName?: string;
+  /** Extra classes of the title row. */
+  headerClassName?: string;
+  /** Extra classes of the title text. */
+  titleClassName?: string;
 }
 
 /**
@@ -55,6 +63,10 @@ export function Dialog({
   widthClass = "w-[480px]",
   initialFocus,
   onEscapeKeyDown,
+  describedBy,
+  contentClassName,
+  headerClassName,
+  titleClassName,
   children,
 }: DialogProps) {
   const contentRef = useRef<HTMLDivElement>(null);
@@ -62,13 +74,14 @@ export function Dialog({
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className={OVERLAY} />
+        <DialogPrimitive.Overlay data-slot="dialog-overlay" className={OVERLAY} />
         <DialogPrimitive.Content
           ref={contentRef}
-          aria-describedby={undefined}
+          aria-describedby={describedBy}
+          aria-modal="true"
           {...(onEscapeKeyDown ? { onEscapeKeyDown } : {})}
           onCloseAutoFocus={returnFocus}
-          className={cn(CONTENT, widthClass)}
+          className={cn(CONTENT, widthClass, contentClassName)}
           onOpenAutoFocus={(event) => {
             const target = initialFocus
               ? (contentRef.current?.querySelector<HTMLElement>(initialFocus) ?? null)
@@ -79,8 +92,12 @@ export function Dialog({
             }
           }}
         >
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <DialogPrimitive.Title className="text-lg font-semibold">{title}</DialogPrimitive.Title>
+          <div
+            className={cn("mb-3 flex shrink-0 items-center justify-between gap-4", headerClassName)}
+          >
+            <DialogPrimitive.Title className={cn("text-lg font-semibold", titleClassName)}>
+              {title}
+            </DialogPrimitive.Title>
             <DialogPrimitive.Close
               aria-label="Close dialog"
               className="inline-flex size-7 items-center justify-center rounded-pill outline-none hover:bg-neutral-tint focus-ring"

@@ -3,7 +3,6 @@
 // back. `createScaled` is the real provider; tests and tools can pass their own factory through the
 // runtime's `createScaled` dependency.
 import type { PollConfig } from "@/shared/ipc/modbus-master.types";
-import { isCombinedFormat } from "./combined";
 import { isBitFunction } from "./functions";
 import { effectiveScale, formatResult, type ScaleResult, scaleKey, scaleValue } from "./scale-math";
 import { overrideMarkerText } from "./scale-presets";
@@ -51,15 +50,11 @@ export function hasAnyScale(config: Pick<PollConfig, "scale" | "scaleOverrides">
 
 /**
  * Scaling is active for registers only (FC03 and FC04). A scale saved on a coil or discrete poll is
- * kept and ignored (DES-003 1.5).
+ * kept and ignored (DES-003 1.5). It no longer depends on a format: 16-bit rows are scaled and
+ * 32/64-bit group rows show `n/a` (DES-009 8.1).
  */
-export function scaleActive(
-  config: Pick<PollConfig, "definition"> & Partial<Pick<PollConfig, "display">>,
-): boolean {
-  return (
-    !isBitFunction(config.definition.function) &&
-    !isCombinedFormat(config.display?.format ?? "unsigned")
-  );
+export function scaleActive(config: Pick<PollConfig, "definition">): boolean {
+  return !isBitFunction(config.definition.function);
 }
 
 /** The Scaled column and the Show control can be used: a scale exists and the poll reads registers. */

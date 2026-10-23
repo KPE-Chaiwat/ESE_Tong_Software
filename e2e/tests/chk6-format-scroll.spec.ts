@@ -14,15 +14,17 @@ test("Format / endian and Apply keep the poll header inside the workspace", asyn
 	const frame = mm.sub(id);
 	const title = mm.titleBar(id);
 	const before = await title.boundingBox();
+	// Rows 0-1 are selected; the row menu opens the Format dialog (REQ-009).
+	await mm.gridRow(id, 0).click();
+	await mm.gridRow(id, 1).click({ modifiers: ["Shift"] });
 	await mm.gridRow(id, 0).click({ button: "right" });
-	await page.getByRole("menuitem", { name: "Format / endian…" }).click();
-	const setup = frame.locator('[data-slot="setup-panel"], [data-slot="setup-dock"], [data-slot="setup-popover"]');
-	const format = setup.locator("[data-interpretation-format]");
-	await expect(format).toBeFocused();
-	await format.selectOption("unsigned32");
-	await setup.getByRole("button", { name: "Apply interpretation" }).click();
+	await page.getByRole("menuitem", { name: "More formats…" }).click();
+	const dialog = page.getByRole("dialog", { name: "Format / endian" });
+	await expect(dialog.getByRole("radio", { name: "Unsigned", exact: true })).toBeFocused();
+	await dialog.getByRole("radio", { name: "Unsigned 32-bit" }).check();
+	await dialog.getByRole("button", { name: "Apply" }).click();
+	await expect(dialog).toHaveCount(0);
 	await expect(mm.grid(id)).toContainText("0–1");
-	await setup.getByRole("button", { name: "Apply", exact: true }).click();
 	const after = await title.boundingBox();
 	const workspace = await mm.workspace.boundingBox();
 	expect(before).not.toBeNull();

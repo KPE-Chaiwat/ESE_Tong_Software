@@ -86,14 +86,8 @@ describe("REV-002 m7: the session buttons wait for the snapshot", () => {
           {
             name: "Kept",
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 5, scanRateMs: 100 },
-            display: {
-              format: "unsigned",
-              addressBase: 0,
-              showAlias: true,
-              copyAlias: false,
-              swapBytes: false,
-              reverseWords: false,
-            },
+            display: { addressBase: 0, showAlias: true, copyAlias: false },
+            formatOverrides: [],
             colorRules: [],
             scale: null,
             scaleOverrides: [],

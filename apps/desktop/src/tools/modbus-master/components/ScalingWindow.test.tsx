@@ -264,14 +264,7 @@ describe("the scaled preview of the Write dialog (DES-003 3.5)", () => {
     const id = await connected({
       ...POLL,
       scale: mA(),
-      display: {
-        format: "unsigned",
-        addressBase: 1,
-        showAlias: true,
-        copyAlias: false,
-        swapBytes: false,
-        reverseWords: false,
-      },
+      display: { addressBase: 1, showAlias: true, copyAlias: false },
     });
     const d = await openWrite(id, 3);
     expect(within(d).getByTestId("write-preview-note")).toHaveTextContent("for address 4.");

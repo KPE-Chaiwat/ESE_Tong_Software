@@ -291,16 +291,20 @@ async fn bulk_unattached_native_rejected_before_commit() {
 #[tokio::test(start_paused = true)]
 async fn bulk_copy_preserves_applied_settings_not_runtime_or_drafts() {
     use shared_types::{
-        AliasEntry, PollState, PollViewSettings, ValueColorComparison, ValueColorHighlight,
-        ValueColorRule, ValueColorSource, ValueFormat,
+        AliasEntry, FormatOverride, PollState, PollViewSettings, ValueColorComparison,
+        ValueColorHighlight, ValueColorRule, ValueColorSource, ValueFormat,
     };
     let f = fixture();
     f.connected(tcp_config(502, 100)).await;
     f.session.set_auto_start_poll(true).await.unwrap();
     let mut cfg = input("A", def(1, 0, 4, 100));
-    cfg.display.format = ValueFormat::Unsigned64;
-    cfg.display.swap_bytes = true;
-    cfg.display.reverse_words = true;
+    cfg.format_overrides = vec![FormatOverride {
+        start: 0,
+        end: 3,
+        format: ValueFormat::Unsigned64,
+        swap_bytes: true,
+        reverse_words: true,
+    }];
     cfg.aliases = vec![AliasEntry {
         address: 0,
         alias: "Applied alias".into(),
@@ -340,6 +344,7 @@ async fn bulk_copy_preserves_applied_settings_not_runtime_or_drafts() {
         .unwrap();
     let copy = &r.polls[1];
     assert_eq!(copy.config.display, cfg.display);
+    assert_eq!(copy.config.format_overrides, cfg.format_overrides);
     assert_eq!(copy.config.aliases, cfg.aliases);
     assert_eq!(copy.config.color_rules, cfg.color_rules);
     assert!(!copy.has_unapplied_edits);

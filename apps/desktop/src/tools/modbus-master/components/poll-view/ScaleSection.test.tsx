@@ -298,18 +298,13 @@ describe.each(["workspace", "native"] as const)("the scale section in the %s hos
     expect(text).not.toHaveTextContent("The scale is kept");
   });
 
-  it("a new scale starts 'Raw is signed' when the poll shows Signed (B4)", async () => {
+  it("a new scale starts 'Raw is signed' when every 16-bit row of the poll is Signed (B4)", async () => {
     const h = await open(host);
     await act(async () => {
       await h.ipc.setPollView(h.pollId, {
-        display: {
-          format: "signed",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        formatOverrides: [
+          { start: 0, end: 9, format: "signed", swapBytes: false, reverseWords: false },
+        ],
       });
     });
     expect(within(section()).queryByLabelText("Raw is signed")).not.toBeInTheDocument();
@@ -328,14 +323,9 @@ describe.each(["workspace", "native"] as const)(
         width: 900,
         poll: {
           definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 4, scanRateMs: 100 },
-          display: {
-            format: "signed",
-            addressBase: 0,
-            showAlias: true,
-            copyAlias: false,
-            swapBytes: false,
-            reverseWords: false,
-          },
+          formatOverrides: [
+            { start: 0, end: 3, format: "signed", swapBytes: false, reverseWords: false },
+          ],
         },
       });
       act(() => {

@@ -411,7 +411,7 @@ test("CHK5-D1/CHK6-C5/B6 schema1/2 migration, invalid/newer profiles preserve wo
 	writeProfile(desktop, "BadOrder", invalid);
 	const newer = structuredClone(exported);
 	newer.name = "Newer";
-	newer.schemaVersion = 6;
+	newer.schemaVersion = 7;
 	writeProfile(desktop, "Newer", newer);
 	await mm.openMenu("File");
 	await mm.menuItem("Open profile…").click();

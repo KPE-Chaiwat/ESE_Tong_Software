@@ -19,6 +19,7 @@ import {
   buildDraft,
   DEFAULT_WRITE_FUNCTION,
   emptyDraft,
+  prefillFormat,
   validateDraft,
   type WriteDraft,
   type WritePrefill,
@@ -101,7 +102,7 @@ export function createWriteStore(deps: WriteStoreDeps): WriteStoreApi {
         pollId,
         draft: buildDraft(prefill, {
           base: config.display.addressBase,
-          format: config.display.format,
+          format: prefillFormat(config, prefill),
           lastFunction: get().lastFunction,
           defaultSlaveId: config.definition.slaveId,
         }),

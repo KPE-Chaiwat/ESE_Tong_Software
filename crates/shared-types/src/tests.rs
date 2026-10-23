@@ -230,6 +230,7 @@ fn poll_profile(name: &str) -> PollProfile {
         },
         active: true,
         display: DisplaySettings::default(),
+        format_overrides: vec![],
         color_rules: Vec::new(),
         scale: None,
         scale_overrides: vec![],
@@ -273,7 +274,9 @@ fn profile_round_trip() {
         migrated_from: None,
     };
     let v = serde_json::to_value(&p).unwrap();
-    assert_eq!(v["schemaVersion"], 5);
+    assert_eq!(v["schemaVersion"], 6);
+    assert_eq!(v["polls"][0]["formatOverrides"], json!([]));
+    assert!(v["polls"][0]["display"].get("format").is_none());
     assert_eq!(v["polls"][0]["definition"]["scanRateMs"], 1000);
     assert_eq!(v["polls"][0]["display"]["showAlias"], true);
     assert_eq!(v["polls"][0]["view"]["workspace"]["state"], "normal");
@@ -353,4 +356,120 @@ fn alias_and_scale_rules() {
     assert!(check_scale_overrides(&[o(5, 4)]).is_err());
     let many: Vec<ScaleOverride> = (0..65).map(|i| o(i, i)).collect();
     assert!(check_scale_overrides(&many).is_err());
+}
+
+fn fo(start: u16, end: u16, format: ValueFormat) -> FormatOverride {
+    FormatOverride {
+        start,
+        end,
+        format,
+        swap_bytes: false,
+        reverse_words: false,
+    }
+}
+
+/// BE-009 test vectors 1 and 2.
+#[test]
+fn format_override_rules() {
+    use ValueFormat as F;
+    assert_eq!(
+        [F::Unsigned, F::Signed, F::Hex, F::Binary].map(format_width),
+        [1; 4]
+    );
+    assert_eq!(
+        [F::Signed32, F::Unsigned32, F::Float32].map(format_width),
+        [2; 3]
+    );
+    assert_eq!(
+        [F::Signed64, F::Unsigned64, F::Float64].map(format_width),
+        [4; 3]
+    );
+    assert!(check_format_overrides(&[]).is_ok());
+    assert!(check_format_overrides(&[fo(0, 1, F::Float32)]).is_ok());
+    assert!(check_format_overrides(&[fo(0, 3, F::Unsigned64), fo(4, 4, F::Hex)]).is_ok());
+    assert!(check_format_overrides(&[fo(65534, 65535, F::Float32)]).is_ok());
+    assert!(check_format_overrides(&[fo(65532, 65535, F::Float64)]).is_ok());
+    // The default is accepted as given.
+    assert!(check_format_overrides(&[fo(7, 7, F::Unsigned)]).is_ok());
+    let err = |list: &[FormatOverride]| check_format_overrides(list).unwrap_err();
+    assert_eq!(
+        err(&[fo(0, 2, F::Float32)]),
+        "Format override 0-2: Float 32-bit needs a multiple of 2 registers."
+    );
+    assert_eq!(
+        err(&[fo(0, 5, F::Unsigned64)]),
+        "Format override 0-5: Unsigned 64-bit needs a multiple of 4 registers."
+    );
+    for (format, label) in [
+        (F::Signed32, "Signed 32-bit"),
+        (F::Unsigned32, "Unsigned 32-bit"),
+        (F::Signed64, "Signed 64-bit"),
+        (F::Float64, "Float 64-bit"),
+    ] {
+        assert!(err(&[fo(10, 10, format)]).contains(label), "{label}");
+    }
+    assert_eq!(
+        err(&[fo(5, 4, F::Hex)]),
+        "Format override 5-4: the end address must not be before the start address."
+    );
+    let mut swapped = fo(0, 0, F::Hex);
+    swapped.swap_bytes = true;
+    assert_eq!(
+        err(&[swapped]),
+        "Format override 0-0: byte and word order apply to 32-bit and 64-bit formats only."
+    );
+    let mut reversed = fo(0, 0, F::Signed);
+    reversed.reverse_words = true;
+    assert!(err(&[reversed]).contains("byte and word order"));
+    let mut ordered = fo(0, 1, F::Float32);
+    ordered.swap_bytes = true;
+    ordered.reverse_words = true;
+    assert!(check_format_overrides(&[ordered]).is_ok());
+    assert_eq!(
+        err(&[fo(0, 3, F::Float32), fo(2, 5, F::Float32)]),
+        "Format overrides 0-3 and 2-5 overlap."
+    );
+    assert_eq!(
+        err(&[fo(2, 5, F::Float32), fo(0, 3, F::Float32)]),
+        "Format overrides 0-3 and 2-5 overlap."
+    );
+    let many: Vec<FormatOverride> = (0..257).map(|i| fo(i, i, F::Hex)).collect();
+    assert_eq!(err(&many), "A poll can have at most 256 format overrides.");
+    assert!(check_format_overrides(&many[..256]).is_ok());
+    // Unsorted input is accepted and stored sorted.
+    let mut unsorted = vec![fo(4, 4, F::Hex), fo(0, 1, F::Float32)];
+    assert!(check_format_overrides(&unsorted).is_ok());
+    sort_format_overrides(&mut unsorted);
+    assert_eq!(unsorted, [fo(0, 1, F::Float32), fo(4, 4, F::Hex)]);
+}
+
+#[test]
+fn format_override_wire_shape_is_strict() {
+    let v = serde_json::to_value(fo(100, 105, ValueFormat::Float32)).unwrap();
+    assert_eq!(
+        v,
+        json!({"start": 100, "end": 105, "format": "float32", "swapBytes": false, "reverseWords": false})
+    );
+    for key in ["start", "end", "format", "swapBytes", "reverseWords"] {
+        let mut bad = v.clone();
+        bad.as_object_mut().unwrap().remove(key);
+        assert!(
+            serde_json::from_value::<FormatOverride>(bad).is_err(),
+            "{key}"
+        );
+    }
+    let mut bad = v.clone();
+    bad["extra"] = json!(1);
+    assert!(serde_json::from_value::<FormatOverride>(bad).is_err());
+    let p: PollViewSettings =
+        serde_json::from_value(json!({"formatOverrides": [v.clone()]})).unwrap();
+    assert_eq!(p.format_overrides.unwrap()[0].end, 105);
+    assert!(serde_json::from_value::<PollViewSettings>(json!({"formatOverrides": null})).is_err());
+    let p: PollViewSettings = serde_json::from_value(json!({})).unwrap();
+    assert!(p.format_overrides.is_none());
+    // Schema 6 display settings have no format keys.
+    assert!(serde_json::from_value::<DisplaySettings>(json!({
+        "addressBase": 0, "showAlias": true, "copyAlias": false, "format": "unsigned"
+    }))
+    .is_err());
 }

@@ -5,11 +5,11 @@ import type { WindowPlacement } from "./WindowPlacement";
 import type { WorkspaceProfile } from "./WorkspaceProfile";
 
 /**
- * A saved Modbus Master setup, schema 3.
+ * A saved Modbus Master setup, schema 6.
  */
 export type Profile = {
 /**
- * 3. Checked by the backend on save.
+ * 6. Checked by the backend on save.
  */
 schemaVersion: number,
 /**
@@ -25,7 +25,7 @@ connectionWindow: WindowPlacement | null, workspace: WorkspaceProfile,
  */
 polls: Array<PollProfile>,
 /**
- * Set by `profiles_get` when the file had an older schema (1 or 2); the file stays as it
+ * Set by `profiles_get` when the file had an older schema (1-5); the file stays as it
  * is until saved. Ignored by `profiles_save` and never written.
  */
 migratedFrom: number | null, };

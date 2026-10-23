@@ -7,35 +7,51 @@
 //  - view channel events -> poll store (state, config, counters), data store (updates), connection
 //    store (shared in W1, own in W2; the same event arrives twice and counts once), prefs;
 //  - poll state -> data store (begin, stale), definition change -> data store (loading or cleared);
-//  - config -> alias mirror, setup draft (an untouched field follows the poll), selection range;
+//  - config -> alias mirror, setup draft (an untouched field follows the poll), the rows (a format,
+//    Start or Quantity change re-snaps selection and focus to whole rows);
 //  - setup drafts -> `hasUnappliedEdits` in Rust;
 //  - connection idle -> data cleared.
 import type { ModbusMasterIpc } from "@/shared/ipc/modbus-master";
 import type {
   DetachReason,
   DisplaySettings,
+  FormatOverride,
   PollHostKind,
   PollId,
   PollViewEvent,
   PollViewSnapshot,
   PrefsChangedEvent,
   ValueColumns,
-  ValueFormat,
 } from "@/shared/ipc/modbus-master.types";
 import type { ToastStoreApi } from "@/shared/lib/toast.store";
-import { addressesOf } from "../lib/address-ranges";
-import { combinedRows, isCombinedFormat } from "../lib/combined";
-import { combinedCopyText } from "../lib/combined-copy";
+import { type AddressRange, rangesContain } from "../lib/address-ranges";
+import { firstRuleConflict } from "../lib/color-rules";
 import {
   CLIPBOARD_ERROR,
   type CopyOptions,
   type CopyRow,
   copiedToast,
   copyAliasesText,
+  copyRegistersText,
   copyRowsText,
 } from "../lib/copy";
-import { VALUE_FORMAT_LABELS } from "../lib/format";
+import {
+  appliedAnnouncement,
+  applyFailedMessage,
+  quickCutToast,
+  ruleConflictMessage,
+  tooManyMessage,
+} from "../lib/format-messages";
+import {
+  type FormatRow,
+  planFormatChange,
+  rowAt,
+  rowsOfConfig,
+  sameOverrides,
+  widenToRows,
+} from "../lib/format-overrides";
 import { isBitFunction } from "../lib/functions";
+import { groupRowValue } from "../lib/row-value";
 import {
   createScaledFactory,
   effectiveValueColumns,
@@ -45,6 +61,11 @@ import {
 } from "../lib/scaled";
 import { type AliasEditStart, type AliasStoreApi, createAliasStore } from "../store/alias.store";
 import type { ConnectionStoreApi } from "../store/connection.store";
+import {
+  createFormatDialogStore,
+  type FormatDialogOrigin,
+  type FormatDialogStoreApi,
+} from "../store/format-dialog.store";
 import {
   createOverrideDialogStore,
   type OverrideDialogStoreApi,
@@ -125,6 +146,8 @@ export interface PollViewRuntimeDeps {
    * are off and pop out and dock refuse. Returns the release function.
    */
   lockModal?: () => () => void;
+  /** A polite screen reader announcement (the window's announcer). */
+  announce?: (text: string) => void;
   canPrepareBulk?: () => boolean;
   /** The view must go away: detached by Rust, poll deleted, or the attach was rejected. */
   onDetached?: (cause: PollViewDetachCause) => void;
@@ -144,11 +167,13 @@ export interface ApplySetupResult {
 }
 
 export interface CopyChoice {
-  /** Explicit logical rows, used by raw inspection without changing grid selection. */
+  /** Explicit rows (any address inside a row), used by raw inspection without changing the selection. */
   addresses?: readonly number[];
   /** Overrides the poll's value columns ("Copy raw", "Copy scaled", "Copy raw and scaled"). */
   columns?: ValueColumns;
   header?: boolean;
+  /** "Copy raw registers": one line per register, unsigned, whatever the row format. */
+  registers?: boolean;
 }
 
 export interface PollViewActions {
@@ -166,7 +191,18 @@ export interface PollViewActions {
   clearSelectedAliases(): Promise<void>;
   editAlias(address: number, by: AliasEditStart): void;
   setValueColumns(columns: ValueColumns): Promise<void>;
-  setFormat(format: ValueFormat): Promise<void>;
+  /** Sends a new list of format overrides (the Format dialog's Apply). True when Rust acknowledged it. */
+  applyFormatOverrides(overrides: FormatOverride[]): Promise<boolean>;
+  /**
+   * Ctrl+1 to Ctrl+4 and the quick items of the narrow Show menu: a 16-bit format, big-endian, on the
+   * selected rows (the focused row when nothing is selected). No dialog (DES-009 section 5).
+   */
+  setSelectedFormat(format: "unsigned" | "signed" | "hex" | "binary"): Promise<void>;
+  /**
+   * Opens the Format dialog D1 for the selection (the focused row when nothing is selected). False
+   * when it cannot open: a coil or discrete poll, no rows to act on, or a dialog that is busy.
+   */
+  openFormatDialog(origin: FormatDialogOrigin, originAddress?: number | null): boolean;
   setAddressBase(base: 0 | 1): Promise<void>;
   setShowAlias(show: boolean): Promise<void>;
   setCopyAlias(copy: boolean): Promise<void>;
@@ -191,6 +227,8 @@ export interface PollViewStores {
   scaleDraft: ScaleDraftStoreApi;
   /** The S8 override dialog (FE-003 task 06). */
   overrides: OverrideDialogStoreApi;
+  /** The Format dialog D1 (FE-009 task 04). */
+  formatDialog: FormatDialogStoreApi;
   connection: ConnectionStoreApi;
   toasts: ToastStoreApi;
 }
@@ -203,6 +241,10 @@ export interface PollViewRuntime {
   hostActions: PollHostActions;
   /** The provider of scaled values for the poll's current scale and overrides. */
   scaled(): ScaledProvider;
+  /** The rows of the grid (DES-009 3.1): the same list while the range and the formats are unchanged. */
+  rows(): readonly FormatRow[];
+  /** What a format action acts on: the selection, or the focused row when nothing is selected. */
+  formatScope(): AddressRange[];
   /** Locks the window's modal state for a dialog of this view; returns the release function. */
   lockModal(): () => void;
   /** What the setup form validates against: connection mode, display base, the other polls' names. */
@@ -248,6 +290,7 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
           poll.getState().pending === null &&
           localModalCount === 0 &&
           !overrides.getState().open &&
+          !formatDialog.getState().open &&
           !ui.getState().bulkOperationToken &&
           (deps.canPrepareBulk?.() ?? true);
         if (ready) {
@@ -302,10 +345,46 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     onSnapshot: (snapshot) => applySnapshot(snapshot),
   });
   const getConfig = () => poll.getState().config;
-  const ui = createPollViewUiStore({ getConfig, initialSetupOpen: deps.host === "native" });
+
+  // The rows of the grid, derived from Start, Quantity, the function and the format overrides. The
+  // same list comes back while those are unchanged, so a config event about something else (an
+  // alias, a counter) does not make the grid compute its rows again.
+  let rowsCache: {
+    key: string;
+    overrides: readonly FormatOverride[];
+    rows: readonly FormatRow[];
+  } | null = null;
+  const NO_ROWS: readonly FormatRow[] = [];
+  const rows = (): readonly FormatRow[] => {
+    const config = getConfig();
+    if (!config) return NO_ROWS;
+    const { startAddress, quantity, function: fn } = config.definition;
+    const bits = isBitFunction(fn);
+    const key = `${startAddress}|${quantity}|${bits}`;
+    const cached = rowsCache;
+    if (
+      cached &&
+      cached.key === key &&
+      (bits ||
+        cached.overrides === config.formatOverrides ||
+        sameOverrides(cached.overrides, config.formatOverrides))
+    ) {
+      return cached.rows;
+    }
+    const next = rowsOfConfig(config);
+    rowsCache = { key, overrides: config.formatOverrides, rows: next };
+    return next;
+  };
+
+  const ui = createPollViewUiStore({
+    getConfig,
+    getRows: rows,
+    initialSetupOpen: deps.host === "native",
+  });
   const data = createPollDataStore({ pollId });
   const alias = createAliasStore({
     getConfig,
+    getRows: rows,
     setView: (partial) => poll.getState().setView(partial),
     toasts,
   });
@@ -318,7 +397,14 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     applyScale: (settings) => scale.getState().applyScale(settings),
     persist: (draft) => ui.getState().setScaleDraft(draft),
   });
-  const overrides = createOverrideDialogStore({ getConfig, scale });
+  const overrides = createOverrideDialogStore({ getConfig, getRows: rows, scale });
+  const formatDialog = createFormatDialogStore({
+    getConfig,
+    getRows: rows,
+    applyFormatOverrides: (list) => poll.getState().setView({ formatOverrides: list }),
+    getCommandError: () => poll.getState().commandError,
+    announce: (text) => deps.announce?.(text),
+  });
 
   function startWiring(): void {
     // poll state -> data view
@@ -335,7 +421,7 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
           scale.getState().applyFromConfig(s.config);
           scaleDraftStore.getState().syncApplied(s.config);
           ui.getState().reconcileConfig(s.config, prev.config?.display.addressBase);
-          ui.getState().syncRange();
+          ui.getState().syncRows();
           if (prev.config) {
             const change = definitionChangeAction(
               prev.config.definition,
@@ -360,7 +446,6 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
         if (
           s.pollDraft === prev.pollDraft &&
           s.scaleDraft === prev.scaleDraft &&
-          s.interpretationDraft === prev.interpretationDraft &&
           s.ruleDraft === prev.ruleDraft
         )
           return;
@@ -369,8 +454,7 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
           .reportUnappliedEdits(
             draftHasEdits(s.pollDraft) ||
               s.scaleDraft?.dirty === true ||
-              s.ruleDraft?.dirty === true ||
-              s.interpretationDraft !== null,
+              s.ruleDraft?.dirty === true,
           );
       }),
     );
@@ -400,19 +484,16 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     // The handoff of the previous host: selection, scroll, widths, drafts, setup (once).
     ui.getState().applyHandoff(snapshot.handoff);
     scaleDraftStore.getState().hydrate(ui.getState().scaleDraft);
-    ui.getState().syncRange();
+    ui.getState().syncRows();
     startWiring();
     // A view that arrives without its handoff (a reload, a handoff older than 10 s) has no drafts,
     // but Rust may still say there are unapplied edits: the flag follows what this view holds
     // (REV-005 m-2).
-    const { pollDraft, scaleDraft, interpretationDraft, ruleDraft } = ui.getState();
+    const { pollDraft, scaleDraft, ruleDraft } = ui.getState();
     void poll
       .getState()
       .reportUnappliedEdits(
-        draftHasEdits(pollDraft) ||
-          scaleDraft?.dirty === true ||
-          ruleDraft?.dirty === true ||
-          interpretationDraft !== null,
+        draftHasEdits(pollDraft) || scaleDraft?.dirty === true || ruleDraft?.dirty === true,
       );
     deps.onSnapshot?.(snapshot);
   }
@@ -432,18 +513,60 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     }),
   );
 
+  // The Format dialog closes without applying when its poll goes away, in either host: the poll was
+  // deleted (the removal event, also when the host keeps the window), the view was detached, the
+  // config is gone, or the poll range no longer holds a register of the scope (DES-009 11.12).
+  subscriptions.push(
+    poll.subscribe((s, prev) => {
+      const dialog = formatDialog.getState();
+      if (!dialog.open) return;
+      const gone =
+        (s.removed && !prev.removed) ||
+        (s.attach === "detached" && prev.attach !== "detached") ||
+        s.config === null;
+      const config = s.config;
+      const last = config ? config.definition.startAddress + config.definition.quantity - 1 : 0;
+      const lostRange =
+        config !== null &&
+        config !== prev.config &&
+        !dialog.scope.some(
+          (r) => r.start <= last && r.end >= (config?.definition.startAddress ?? 0),
+        );
+      if (gone || lostRange) dialog.closeForRemoval();
+    }),
+  );
+
   // ---- actions ----
-  const rangeOf = (): { start: number; end: number } | null => {
-    const c = getConfig();
-    return c
-      ? {
-          start: c.definition.startAddress,
-          end: c.definition.startAddress + c.definition.quantity - 1,
-        }
-      : null;
+  /** The rows whose first register is selected (the selection always holds whole rows). */
+  const selectedRows = (): FormatRow[] => {
+    const { selection } = ui.getState();
+    return rows().filter((row) => rangesContain(selection, row.address));
   };
 
-  const selectedAddresses = (): number[] => addressesOf(ui.getState().selection);
+  /** The rows that contain these addresses, once each, in address order. */
+  const rowsContaining = (addresses: readonly number[]): FormatRow[] => {
+    const list = rows();
+    const found = new Set<number>();
+    for (const address of addresses) {
+      const index = rowAt(list, address);
+      if (index !== -1) found.add(index);
+    }
+    return [...found].sort((a, b) => a - b).map((index) => list[index] as FormatRow);
+  };
+
+  /**
+   * What a format action acts on: the selection, or the focused row when nothing is selected, always
+   * as whole rows (DES-009 11.2). The UI store already keeps whole rows; widening here as well means
+   * no path can hand a part of a group to the planner or the dialog (REQ-009 item 13).
+   */
+  const formatScope = (): AddressRange[] => {
+    const { selection, focusAddress } = ui.getState();
+    const list = rows();
+    if (selection.length > 0) return widenToRows(selection, list);
+    if (focusAddress === null) return [];
+    const row = list[rowAt(list, focusAddress)];
+    return row ? [{ start: row.address, end: row.endAddress }] : [];
+  };
 
   /** The provider of the current scale; the factory hands back the same one while it is unchanged. */
   const scaledProvider = (): ScaledProvider => {
@@ -451,20 +574,57 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     return config ? createScaled(config) : NO_SCALE;
   };
 
-  function copyRowsFor(addresses: readonly number[]): CopyRow[] {
+  /** One copy row per visible register; a combined value appears only at its head. */
+  function copyRowsFor(list: readonly FormatRow[]): CopyRow[] {
     const config = getConfig();
     if (!config) return [];
     const scaled = scaledProvider();
     const values = data.getState().values;
-    const start = config.definition.startAddress;
-    return addresses.map((address) => {
-      const raw = values?.[address - start];
-      return {
-        address,
-        raw,
-        alias: alias.getState().aliases.get(address),
-        scaled: raw === undefined ? "" : (scaled(raw, address)?.text ?? ""),
+    const aliases = alias.getState().aliases;
+    const { startAddress: start, quantity } = config.definition;
+    return list.flatMap((row): CopyRow[] => {
+      if (row.width === 1) {
+        const raw = values?.[row.address - start];
+        return [
+          {
+            address: row.address,
+            raw,
+            alias: aliases.get(row.address),
+            scaled: raw === undefined ? "" : (scaled(raw, row.address)?.text ?? ""),
+            format: row.format,
+          },
+        ];
+      }
+      const { words, value } = groupRowValue(row, values, start, quantity);
+      const head: CopyRow = {
+        address: row.address,
+        raw: undefined,
+        alias: aliases.get(row.address),
+        scaled: "",
+        group: {
+          format: row.format,
+          value,
+          registers: Array.from({ length: row.endAddress - row.address + 1 }, (_, i) => ({
+            address: row.address + i,
+            raw: words[i],
+            alias: aliases.get(row.address + i),
+          })),
+        },
       };
+      return [
+        head,
+        ...Array.from(
+          { length: row.endAddress - row.address },
+          (_, i): CopyRow => ({
+            address: row.address + i + 1,
+            raw: undefined,
+            alias: aliases.get(row.address + i + 1),
+            scaled: "",
+            format: row.format,
+            continuation: true,
+          }),
+        ),
+      ];
     });
   }
 
@@ -539,56 +699,51 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
 
     async copyRows(choice = {}) {
       const config = getConfig();
-      const addresses = choice.addresses ?? selectedAddresses();
-      if (!config || addresses.length === 0) return;
-      const bits = config.definition.function === 1 || config.definition.function === 2;
-      if (!bits && isCombinedFormat(config.display.format)) {
-        if (choice.columns === "scaled" || choice.columns === "both") return;
-        const rows = combinedRows(
-          config.definition.startAddress,
-          config.definition.quantity,
-          data.getState().values,
-          config.display.format,
-          config.display,
-        ).filter((row) => addresses.includes(row.address));
+      if (!config) return;
+      const list = choice.addresses ? rowsContaining(choice.addresses) : selectedRows();
+      if (list.length === 0) return;
+      const data16 = list.some((row) => row.width === 1);
+      const bits = isBitFunction(config.definition.function);
+      const copyData = copyRowsFor(list);
+      if (choice.registers) {
         await writeClipboard(
-          combinedCopyText(rows, alias.getState().aliases, {
+          copyRegistersText(copyData, {
             base: config.display.addressBase,
             includeAlias: config.display.copyAlias,
             header: choice.header ?? false,
-            label: VALUE_FORMAT_LABELS[config.display.format],
-            rawRegisters: choice.columns === "raw",
           }),
-          copiedToast(rows.length),
+          copiedToast(copyData.length),
         );
         return;
       }
+      // Combined values have no scaled value: the menu offers Copy scaled only with a 16-bit row.
+      if (!data16 && (choice.columns === "scaled" || choice.columns === "both")) return;
+      // A scale on a coil or discrete poll is ignored: only the raw values are copied.
+      const wanted = bits ? "raw" : (choice.columns ?? effectiveValueColumns(config));
       const opts: CopyOptions = {
-        format: config.display.format,
+        format: "unsigned",
         base: config.display.addressBase,
-        // A scale on a coil or discrete poll is ignored: only the raw values are copied.
-        columns: bits ? "raw" : (choice.columns ?? effectiveValueColumns(config)),
+        columns: !data16 && wanted === "scaled" ? "raw" : wanted,
         bits,
         includeAlias: config.display.copyAlias,
         header: choice.header ?? false,
       };
-      await writeClipboard(
-        copyRowsText(copyRowsFor(addresses), opts),
-        copiedToast(addresses.length),
-      );
+      await writeClipboard(copyRowsText(copyData, opts), copiedToast(copyData.length));
     },
 
     async copyAliases() {
-      const addresses = selectedAddresses();
-      if (addresses.length === 0) return;
-      await writeClipboard(copyAliasesText(copyRowsFor(addresses)), copiedToast(addresses.length));
+      const list = selectedRows();
+      if (list.length === 0) return;
+      const copyData = copyRowsFor(list);
+      await writeClipboard(copyAliasesText(copyData), copiedToast(copyData.length));
     },
 
     async pasteAliases(text) {
-      const range = rangeOf();
-      if (!range) return;
+      const list = rows();
+      const first = list[0];
+      if (!first) return;
       const { selection, focusAddress } = ui.getState();
-      const start = selection[0]?.start ?? focusAddress ?? range.start;
+      const start = selection[0]?.start ?? focusAddress ?? first.address;
       await alias.getState().paste(text, start);
     },
 
@@ -611,7 +766,8 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     },
 
     async clearSelectedAliases() {
-      await alias.getState().clear(selectedAddresses());
+      // Only the alias of each row's first register: the others of a group row are kept.
+      await alias.getState().clear(selectedRows().map((row) => row.address));
     },
 
     editAlias(address, by) {
@@ -626,19 +782,63 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
     },
     openOverrideForSelection() {
       const config = getConfig();
-      if (
-        !config ||
-        isBitFunction(config.definition.function) ||
-        isCombinedFormat(config.display.format)
-      )
-        return false;
+      if (!config || isBitFunction(config.definition.function)) return false;
+      // Combined values have no scale: a selection with a group row cannot get an override.
+      if (selectedRows().some((row) => row.width > 1)) return false;
       return overrides.getState().openForSelection(ui.getState().selection);
     },
     async removeOverridesAtSelection() {
       await scale.getState().removeOverrides(ui.getState().selection);
     },
-    async setFormat(format) {
-      await setDisplay({ format });
+    applyFormatOverrides(list) {
+      return poll.getState().setView({ formatOverrides: list });
+    },
+    async setSelectedFormat(format) {
+      const config = getConfig();
+      if (!config || isBitFunction(config.definition.function)) return;
+      if (formatDialog.getState().open) return;
+      const scope = formatScope();
+      if (scope.length === 0) return;
+      const { startAddress, quantity } = config.definition;
+      const plan = planFormatChange({
+        overrides: config.formatOverrides,
+        scope,
+        choice: { format, order: "big" },
+        pollRange: { start: startAddress, end: startAddress + quantity - 1 },
+      });
+      const fail = (text: string) =>
+        toasts.getState().show(text, { tone: "error", durationMs: 4000 });
+      if (plan.kind === "tooMany") {
+        fail(tooManyMessage(plan.count));
+        return;
+      }
+      if (plan.kind !== "ok" || plan.unchanged) return;
+      const conflict = firstRuleConflict(config.colorRules, plan.overrides);
+      if (conflict) {
+        fail(ruleConflictMessage(conflict.name, conflict.message));
+        return;
+      }
+      const ok = await actions.applyFormatOverrides(plan.overrides);
+      if (!ok) {
+        fail(applyFailedMessage(poll.getState().commandError));
+        return;
+      }
+      const base = config.display.addressBase;
+      deps.announce?.(appliedAnnouncement(format, "big", scope, base));
+      if (plan.cuts.length > 0) {
+        toasts.getState().show(quickCutToast(format, scope, plan.cuts, base), { durationMs: 4000 });
+      }
+    },
+    openFormatDialog(origin, originAddress = null) {
+      const config = getConfig();
+      if (!config || isBitFunction(config.definition.function)) return false;
+      const scope = formatScope();
+      if (scope.length === 0) return false;
+      const at = originAddress ?? ui.getState().focusAddress;
+      const opened = formatDialog.getState().openFor(scope, origin, at);
+      // The row that opened the dialog is where the focus comes back to (DES-009 4.7).
+      if (opened && origin === "grid" && at !== null) ui.getState().setFocusRow(at);
+      return opened;
     },
     async setAddressBase(base) {
       await setDisplay({ addressBase: base });
@@ -673,12 +873,15 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
       scale,
       scaleDraft: scaleDraftStore,
       overrides,
+      formatDialog,
       connection,
       toasts,
     },
     actions,
     hostActions,
     scaled: scaledProvider,
+    rows,
+    formatScope,
     lockModal: lockLocalModal,
     draftContext,
     init() {
@@ -686,6 +889,9 @@ export function createPollViewRuntime(deps: PollViewRuntimeDeps): PollViewRuntim
       return started;
     },
     dispose() {
+      // A host that tears the view down (a deleted poll closes its sub-window) may do it before the
+      // removal event is handled: an Apply still on its way must then change nothing and say nothing.
+      formatDialog.getState().closeForRemoval();
       bulkUnlock?.();
       bulkUnlock = null;
       ui.setState({ bulkOperationToken: null });

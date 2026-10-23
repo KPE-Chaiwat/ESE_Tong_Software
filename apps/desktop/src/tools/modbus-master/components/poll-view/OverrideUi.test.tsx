@@ -256,14 +256,7 @@ describe("from the list: Add override", () => {
   it("opens with Start and End in the display base and the protocol helper", async () => {
     const h = await live(
       {
-        display: {
-          format: "unsigned",
-          addressBase: 1,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: true, copyAlias: false },
       },
       undefined,
       { setupOpen: true },
@@ -320,14 +313,7 @@ describe("from the list: Add override", () => {
   it("D4: in 1-based mode a start of 0 is refused", async () => {
     const h = await live(
       {
-        display: {
-          format: "unsigned",
-          addressBase: 1,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: true, copyAlias: false },
       },
       undefined,
       { setupOpen: true },
@@ -502,14 +488,7 @@ describe("the override list", () => {
     await live(
       {
         scaleOverrides: two,
-        display: {
-          format: "unsigned",
-          addressBase: 1,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: true, copyAlias: false },
       },
       undefined,
       { setupOpen: true },

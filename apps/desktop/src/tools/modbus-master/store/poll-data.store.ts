@@ -105,3 +105,15 @@ export const selectPollDataLastOkAt = (s: PollDataStore) => s.lastOkAt;
 export const selectPollDataClearedBecause = (s: PollDataStore) => s.clearedBecause;
 /** One row subscribes to its own value: an update that changes other rows leaves it alone. */
 export const selectValueAt = (index: number) => (s: PollDataStore) => s.values?.[index];
+/**
+ * The registers of one group row as a comma separated text (a primitive, so the row re-renders only
+ * when its own words change), or null when there is no snapshot of the current quantity or `count`
+ * is 0 (a 16-bit row reads its single value with `selectValueAt`).
+ */
+export const selectWordsKey =
+  (offset: number, count: number, quantity: number) =>
+  (s: PollDataStore): string | null => {
+    const values = s.values;
+    if (count === 0 || !values || values.length !== quantity) return null;
+    return values.slice(offset, offset + count).join(",");
+  };

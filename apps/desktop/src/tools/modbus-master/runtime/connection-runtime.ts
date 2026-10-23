@@ -409,6 +409,7 @@ export function createConnectionRuntime(
         toasts,
         clipboard,
         ...(options.createScaled ? { createScaled: options.createScaled } : {}),
+        announce: (text) => announcer.getState().announce(text),
         lockModal: () => layout.getState().lockModal(),
         canPrepareBulk: () =>
           layout.getState().modalCount <= (pollBulk.getState().phase !== "idle" ? 1 : 0) &&

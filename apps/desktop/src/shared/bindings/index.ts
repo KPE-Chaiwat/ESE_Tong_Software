@@ -19,6 +19,7 @@ export type { DetachReason } from "./DetachReason";
 export type { DisplaySettings } from "./DisplaySettings";
 export type { DockPreview } from "./DockPreview";
 export type { ExceptionCode } from "./ExceptionCode";
+export type { FormatOverride } from "./FormatOverride";
 export type { GridRect } from "./GridRect";
 export type { HandoffRequested } from "./HandoffRequested";
 export type { LogicalPoint } from "./LogicalPoint";

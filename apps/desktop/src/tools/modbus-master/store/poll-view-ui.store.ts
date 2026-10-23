@@ -1,17 +1,17 @@
 // The local UI state of one poll view (DES-002 2.3.3, 2.5.4, FE-002 task 07): setup presentation,
-// selection and focus by address, scroll, column widths and the unapplied drafts. Nothing here
-// goes to Rust. It is what the handoff carries when the poll moves between hosts.
+// selection and focus, scroll, column widths and the unapplied drafts. Selection and focus move by
+// ROW (DES-009 3.3): a row is one register or one 32/64-bit group, and the selection always covers
+// whole rows, kept as protocol address ranges. Nothing here goes to Rust. It is what the handoff
+// carries when the poll moves between hosts.
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { AddressBase, PollConfig } from "@/shared/ipc/modbus-master.types";
 import {
   type AddressRange,
-  clampRanges,
   normalizeRanges,
-  rangeBetween,
   rangesContain,
   sameRanges,
-  toggleAddress,
 } from "../lib/address-ranges";
+import { type FormatRow, rowAt, rowsOfConfig, snapRangesToRows } from "../lib/format-overrides";
 import { type PollViewHandoffV1, parseHandoff, serializeHandoff } from "../lib/handoff";
 import {
   type DraftContext,
@@ -24,12 +24,13 @@ import {
 } from "./poll-draft.logic";
 import type { RuleDraft } from "./rule-draft";
 
-export type ColumnId = "alias" | "address" | "raw" | "scaled";
+export type ColumnId = "alias" | "address" | "format" | "raw" | "scaled";
 
 /** Minimum widths of the data columns (DES-002 2.3.4). */
 export const POLL_COLUMN_MIN_WIDTHS: Readonly<Record<ColumnId, number>> = {
   alias: 96,
   address: 72,
+  format: 64,
   raw: 96,
   scaled: 120,
 };
@@ -37,6 +38,7 @@ export const POLL_COLUMN_MIN_WIDTHS: Readonly<Record<ColumnId, number>> = {
 export const DEFAULT_COLUMN_WIDTHS: Readonly<Record<ColumnId, number>> = {
   alias: 160,
   address: 120,
+  format: 96,
   raw: 160,
   scaled: 160,
 };
@@ -52,15 +54,9 @@ export interface ScaleDraft {
 
 export interface PollViewUiState {
   bulkOperationToken: string | null;
-  groupWidth: number;
   ruleDraft: RuleDraft | null;
+  /** The row whose raw registers the inspector shows (its first in-poll address). */
   inspectedGroupAddress: number | null;
-  interpretationDraft: {
-    format: string;
-    swapBytes: boolean;
-    reverseWords: boolean;
-    error: string | null;
-  } | null;
   /** The setup dock, popover or panel is open. */
   setupOpen: boolean;
   /** Compact mode is on (mirrored from Rust). */
@@ -69,11 +65,13 @@ export interface PollViewUiState {
   setupOverride: boolean;
   /** `setupOpen` before compact mode closed it, restored when compact mode ends. */
   setupBeforeCompact: boolean | null;
-  /** Selected protocol addresses, as sorted merged ranges. */
+  /** Selected protocol addresses, as sorted merged ranges of whole rows. */
   selection: AddressRange[];
+  /** Always the `address` of a row. */
   anchorAddress: number | null;
+  /** Always the `address` of a row. */
   focusAddress: number | null;
-  /** The first visible address. */
+  /** The address of the first visible row. */
   topAddress: number | null;
   columnWidths: Record<ColumnId, number>;
   pollDraft: PollSetupDraft | null;
@@ -81,10 +79,8 @@ export interface PollViewUiState {
 }
 
 export interface PollViewUiActions {
-  setGroupWidth(width: number): void;
   setRuleDraft(draft: RuleDraft | null): void;
   setInspectedGroupAddress(address: number | null): void;
-  setInterpretationDraft(draft: PollViewUiState["interpretationDraft"]): void;
   toggleSetup(): void;
   setSetupOpen(open: boolean): void;
   /** Closes the setup dock, popover or panel (Esc inside the popover, [Done]). */
@@ -92,16 +88,26 @@ export interface PollViewUiActions {
   /** Compact mode changed: the setup closes and the local override ends (or the setup returns). */
   applyCompact(compact: boolean): void;
 
-  /** Click on a row (Shift extends from the anchor, Ctrl toggles). Out-of-range addresses are ignored. */
+  /**
+   * Click on the row that contains `address` (Shift extends from the anchor, Ctrl toggles); the row
+   * is selected whole. Addresses outside the poll range are ignored.
+   */
   click(address: number, mods?: { shift?: boolean; ctrl?: boolean }): void;
-  /** Arrow, PageUp and PageDown. Clamped to the poll range. */
+  /** Arrow, PageUp and PageDown: `delta` rows. Clamped to the first and last row. */
   moveFocus(delta: number, mods?: { shift?: boolean }): void;
-  /** Home and End. */
+  /** Home and End: the row that contains `address`, clamped to the first and last row. */
   moveFocusTo(address: number, mods?: { shift?: boolean }): void;
   selectAll(): void;
+  /** Esc: nothing is selected, the focused row stays and becomes the anchor (DES-009 11.8). */
   clearSelection(): void;
-  /** The poll range changed (Start or Quantity): selection and focus keep only what is still there. */
-  syncRange(): void;
+  /** Moves the focus to the row that contains `address` and leaves the selection as it is. */
+  setFocusRow(address: number): void;
+  /**
+   * The rows changed (a format, Start, Quantity or the function): focus and anchor move to the row
+   * that now contains their old address (the first row when it is gone), the selection is widened to
+   * whole rows and clipped to the poll range.
+   */
+  syncRows(): void;
   setTopAddress(address: number | null): void;
   setColumnWidth(id: ColumnId, px: number): void;
 
@@ -126,6 +132,11 @@ export type PollViewUiStoreApi = StoreApi<PollViewUiStore>;
 export interface PollViewUiDeps {
   /** The applied poll (for the address range and the draft). */
   getConfig(): PollConfig | null;
+  /**
+   * The rows of the applied poll, in address order (`formatRows`). The runtime hands over its
+   * memoized list; without it the rows are derived from the config.
+   */
+  getRows?(): readonly FormatRow[];
   /** A native window shows its setup panel at first; a sub-window starts with it closed. */
   initialSetupOpen?: boolean;
 }
@@ -142,18 +153,12 @@ function clampWidths(widths: Record<ColumnId, number>): Record<ColumnId, number>
   return out;
 }
 
-function rangeOf(config: PollConfig | null): { start: number; end: number } | null {
-  if (!config) return null;
-  const { startAddress, quantity } = config.definition;
-  return { start: startAddress, end: startAddress + quantity - 1 };
-}
+const NO_ROWS: readonly FormatRow[] = [];
 
 const initialState: PollViewUiState = {
   bulkOperationToken: null,
-  groupWidth: 1,
   ruleDraft: null,
   inspectedGroupAddress: null,
-  interpretationDraft: null,
   setupOpen: false,
   compact: false,
   setupOverride: false,
@@ -169,11 +174,20 @@ const initialState: PollViewUiState = {
 
 export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi {
   return createStore<PollViewUiStore>()((set, get) => {
-    const clampAddress = (address: number): number | null => {
-      const range = rangeOf(deps.getConfig());
-      if (!range || address < range.start || address > range.end) return null;
-      return address;
-    };
+    const rows = (): readonly FormatRow[] =>
+      deps.getRows ? deps.getRows() : deps.getConfig() ? rowsOfConfig(deps.getConfig()) : NO_ROWS;
+    /** The row that contains the address, or null when the address is not in the poll. */
+    const rowFor = (list: readonly FormatRow[], address: number): FormatRow | null =>
+      list[rowAt(list, address)] ?? null;
+    const rangeOfRow = (row: FormatRow): AddressRange => ({
+      start: row.address,
+      end: row.endAddress,
+    });
+    /** The whole rows between two rows, in either order. */
+    const spanOf = (a: FormatRow, b: FormatRow): AddressRange => ({
+      start: Math.min(a.address, b.address),
+      end: Math.max(a.endAddress, b.endAddress),
+    });
 
     return {
       ...initialState,
@@ -215,85 +229,121 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
       },
 
       click(address, mods = {}) {
-        const target = clampAddress(address);
-        if (target === null) return;
+        const list = rows();
+        const target = rowFor(list, address);
+        if (!target) return;
         const s = get();
         if (mods.shift) {
-          const from = s.anchorAddress ?? target;
+          const from = s.anchorAddress === null ? null : rowFor(list, s.anchorAddress);
+          const anchor = from ?? target;
           set({
-            anchorAddress: from,
-            selection: [rangeBetween(from, target)],
-            focusAddress: target,
+            anchorAddress: anchor.address,
+            selection: [spanOf(anchor, target)],
+            focusAddress: target.address,
           });
         } else if (mods.ctrl) {
-          set({
-            anchorAddress: target,
-            selection: toggleAddress(s.selection, target),
-            focusAddress: target,
-          });
+          const selected = rangesContain(s.selection, target.address);
+          const selection = selected
+            ? normalizeRanges(
+                s.selection.flatMap((r) => {
+                  if (target.address < r.start || target.address > r.end) return [r];
+                  return [
+                    ...(r.start < target.address
+                      ? [{ start: r.start, end: target.address - 1 }]
+                      : []),
+                    ...(target.endAddress < r.end
+                      ? [{ start: target.endAddress + 1, end: r.end }]
+                      : []),
+                  ];
+                }),
+              )
+            : normalizeRanges([...s.selection, rangeOfRow(target)]);
+          set({ anchorAddress: target.address, selection, focusAddress: target.address });
         } else {
           set({
-            anchorAddress: target,
-            selection: [{ start: target, end: target }],
-            focusAddress: target,
+            anchorAddress: target.address,
+            selection: [rangeOfRow(target)],
+            focusAddress: target.address,
           });
         }
       },
 
       moveFocus(delta, mods = {}) {
-        const range = rangeOf(deps.getConfig());
-        if (!range) return;
-        const base = get().focusAddress ?? (delta > 0 ? range.start - 1 : range.end + 1);
-        get().moveFocusTo(Math.min(range.end, Math.max(range.start, base + delta)), mods);
+        const list = rows();
+        if (list.length === 0) return;
+        const s = get();
+        const at = s.focusAddress === null ? -1 : rowAt(list, s.focusAddress);
+        const from = at !== -1 ? at : delta > 0 ? -1 : list.length;
+        const index = Math.min(list.length - 1, Math.max(0, from + delta));
+        get().moveFocusTo((list[index] as FormatRow).address, mods);
       },
 
       moveFocusTo(address, mods = {}) {
-        const range = rangeOf(deps.getConfig());
-        if (!range) return;
-        const target = Math.min(range.end, Math.max(range.start, address));
+        const list = rows();
+        const first = list[0];
+        const last = list[list.length - 1];
+        if (!first || !last) return;
+        const clamped = Math.min(last.address, Math.max(first.address, address));
+        const target = rowFor(list, clamped) ?? first;
         const s = get();
         if (mods.shift) {
-          const from = s.anchorAddress ?? s.focusAddress ?? target;
+          const known = s.anchorAddress ?? s.focusAddress;
+          const from = known === null ? null : rowFor(list, known);
+          const anchor = from ?? target;
           set({
-            anchorAddress: from,
-            selection: [rangeBetween(from, target)],
-            focusAddress: target,
+            anchorAddress: anchor.address,
+            selection: [spanOf(anchor, target)],
+            focusAddress: target.address,
           });
         } else {
           set({
-            anchorAddress: target,
-            selection: [{ start: target, end: target }],
-            focusAddress: target,
+            anchorAddress: target.address,
+            selection: [rangeOfRow(target)],
+            focusAddress: target.address,
           });
         }
       },
 
       selectAll() {
-        const range = rangeOf(deps.getConfig());
-        if (!range) return;
+        const list = rows();
+        const first = list[0];
+        const last = list[list.length - 1];
+        if (!first || !last) return;
         set((s) => ({
-          anchorAddress: range.start,
-          selection: [{ start: range.start, end: range.end }],
-          focusAddress: s.focusAddress ?? range.start,
+          anchorAddress: first.address,
+          selection: [{ start: first.address, end: last.endAddress }],
+          focusAddress: s.focusAddress ?? first.address,
         }));
       },
 
       clearSelection() {
-        set({ selection: [], anchorAddress: null, focusAddress: null });
+        const { selection, anchorAddress, focusAddress } = get();
+        if (selection.length === 0 && anchorAddress === focusAddress) return;
+        set({ selection: [], anchorAddress: focusAddress });
       },
 
-      syncRange() {
-        const range = rangeOf(deps.getConfig());
-        if (!range) return;
+      setFocusRow(address) {
+        const list = rows();
+        const row = rowFor(list, address);
+        if (row && get().focusAddress !== row.address) set({ focusAddress: row.address });
+      },
+
+      syncRows() {
+        const list = rows();
+        const first = list[0];
+        if (!first) return;
         const s = get();
-        const selection = clampRanges(s.selection, range.start, range.end);
-        const inside = (a: number | null) =>
-          a !== null && a >= range.start && a <= range.end ? a : null;
+        const selection = snapRangesToRows(list, s.selection);
+        /** The row address that now contains `address`; `whenGone` when it left the poll; null stays. */
+        const snap = (address: number | null, whenGone: number | null): number | null => {
+          if (address === null) return null;
+          return rowFor(list, address)?.address ?? whenGone;
+        };
         const next = {
           selection: sameRanges(selection, s.selection) ? s.selection : selection,
-          anchorAddress: inside(s.anchorAddress),
-          focusAddress: inside(s.focusAddress),
-          topAddress: inside(s.topAddress),
+          anchorAddress: snap(s.anchorAddress, first.address),
+          focusAddress: snap(s.focusAddress, first.address),
+          topAddress: snap(s.topAddress, null),
         };
         if (
           next.selection !== s.selection ||
@@ -345,14 +395,8 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
       setScaleDraft(draft) {
         set({ scaleDraft: draft });
       },
-      setGroupWidth(width) {
-        set({ groupWidth: width });
-      },
       setRuleDraft(draft) {
         set({ ruleDraft: draft });
-      },
-      setInterpretationDraft(draft) {
-        set({ interpretationDraft: draft });
       },
       setInspectedGroupAddress(address) {
         set({ inspectedGroupAddress: address });
@@ -363,9 +407,7 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
         const handoff: PollViewHandoffV1 = {
           version: 1,
           inspectedGroupAddress: s.inspectedGroupAddress,
-          groupWidth: s.groupWidth,
           ruleDraft: s.ruleDraft,
-          interpretationDraft: s.interpretationDraft,
           setupOpen: s.setupOpen,
           setupOverride: s.setupOverride,
           selection: s.selection.map((r) => ({ ...r })),
@@ -397,16 +439,22 @@ export function createPollViewUiStore(deps: PollViewUiDeps): PollViewUiStoreApi 
           anchorAddress: handoff.anchorAddress,
           focusAddress: handoff.focusAddress,
           topAddress: handoff.topAddress,
-          columnWidths: clampWidths(handoff.columnWidths),
+          columnWidths: clampWidths({
+            alias: handoff.columnWidths.alias,
+            address: handoff.columnWidths.address,
+            format: handoff.columnWidths.format ?? DEFAULT_COLUMN_WIDTHS.format,
+            raw: handoff.columnWidths.raw,
+            scaled: handoff.columnWidths.scaled,
+          }),
           pollDraft: handoff.pollDraft
             ? { ...handoff.pollDraft, errors: { ...handoff.pollDraft.errors } }
             : null,
           scaleDraft: handoff.scaleDraft,
           inspectedGroupAddress: handoff.inspectedGroupAddress ?? null,
-          groupWidth: handoff.groupWidth ?? 1,
           ruleDraft: handoff.ruleDraft ?? null,
-          interpretationDraft: handoff.interpretationDraft ?? null,
         });
+        // The handoff holds addresses, not rows: whole rows again for this window's formats.
+        get().syncRows();
         return true;
       },
     };

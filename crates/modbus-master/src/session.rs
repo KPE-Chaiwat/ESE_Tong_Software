@@ -52,9 +52,9 @@ use crate::scheduler::{on_time_start, Scheduler};
 use crate::timer::{NoTimerResolution, PrecisionHold, TimerResolution};
 use crate::traffic::TrafficLog;
 use crate::validate::{
-    validate_color_rules, validate_connection, validate_handoff, validate_layout, validate_poll,
-    validate_poll_name, validate_view_parts, validate_workspace_rect, validate_write,
-    ValidationError,
+    validate_color_rules, validate_connection, validate_format_overrides, validate_handoff,
+    validate_layout, validate_poll, validate_poll_name, validate_view_parts,
+    validate_workspace_rect, validate_write, ValidationError,
 };
 
 /// Pause after an RTU broadcast before the next request, so slaves can process it
@@ -1991,8 +1991,10 @@ impl Actor {
             Some(&input.scale_overrides),
             Some(&input.aliases),
         )?;
-        validate_color_rules(&input.color_rules, input.display.format)?;
+        validate_format_overrides(&input.format_overrides)?;
+        validate_color_rules(&input.color_rules, &input.format_overrides)?;
         shared_types::normalize_color_rules(&mut input.color_rules);
+        shared_types::sort_format_overrides(&mut input.format_overrides);
         sort_aliases(&mut input.aliases);
         let active = self.auto_start_poll;
         let connected = self.conn.is_connected();
@@ -2025,6 +2027,7 @@ impl Actor {
             definition: input.definition,
             active,
             display: input.display,
+            format_overrides: input.format_overrides,
             color_rules: input.color_rules,
             scale: input.scale,
             scale_overrides: input.scale_overrides,
@@ -2073,6 +2076,7 @@ impl Actor {
             name: copy_name(&src.name, &taken),
             definition: src.definition.clone(),
             display: src.display.clone(),
+            format_overrides: src.format_overrides.clone(),
             color_rules: src.color_rules.clone(),
             scale: src.scale.clone(),
             scale_overrides: src.scale_overrides.clone(),
@@ -2210,11 +2214,17 @@ impl Actor {
             view.scale_overrides.as_deref(),
             view.aliases.as_deref(),
         )?;
+        if let Some(o) = &view.format_overrides {
+            validate_format_overrides(o)?;
+        }
         let p = self.poll_or_err(id)?;
-        let display = view.display.as_ref().unwrap_or(&p.display);
+        let overrides = view
+            .format_overrides
+            .as_ref()
+            .unwrap_or(&p.format_overrides);
         let rules = view.color_rules.as_ref().unwrap_or(&p.color_rules);
-        if let Err(error) = validate_color_rules(rules, display.format) {
-            if view.display.is_some()
+        if let Err(error) = validate_color_rules(rules, overrides) {
+            if view.format_overrides.is_some()
                 && view.color_rules.is_none()
                 && error.message == shared_types::INTEGER_THRESHOLD_SYNTAX
             {
@@ -2224,7 +2234,7 @@ impl Actor {
                     .nth(1)
                     .and_then(|s| s.parse::<usize>().ok())
                     .unwrap_or(0);
-                return Err(invalid("colorRules", format!("Interpretation not applied. Rule \"{}\" requires whole-number thresholds for 64-bit integers.", rules[index].name)));
+                return Err(invalid("colorRules", format!("Format not applied. Rule \"{}\" requires whole-number thresholds for 64-bit integers.", rules[index].name)));
             }
             return Err(error.into());
         }
@@ -2236,6 +2246,10 @@ impl Actor {
         let edits_before = p.has_unapplied_edits;
         if let Some(d) = view.display {
             p.display = d;
+        }
+        if let Some(mut o) = view.format_overrides {
+            shared_types::sort_format_overrides(&mut o);
+            p.format_overrides = o;
         }
         if let Some(s) = view.scale {
             p.scale = s;
@@ -2662,11 +2676,13 @@ impl Actor {
                 Some(&pp.aliases),
             )
             .map_err(prefix)?;
-            validate_color_rules(&pp.color_rules, pp.display.format).map_err(prefix)?;
+            validate_format_overrides(&pp.format_overrides).map_err(prefix)?;
+            validate_color_rules(&pp.color_rules, &pp.format_overrides).map_err(prefix)?;
             names.push(&pp.name);
         }
         for poll in &mut profile.polls {
             shared_types::normalize_color_rules(&mut poll.color_rules);
+            shared_types::sort_format_overrides(&mut poll.format_overrides);
         }
         // Old views close without S6; native windows are closed by the window layer.
         let old: Vec<PollId> = self.polls.iter().map(|p| p.id).collect();
@@ -2697,6 +2713,7 @@ impl Actor {
                 definition: pp.definition,
                 active: pp.active,
                 display: pp.display,
+                format_overrides: pp.format_overrides,
                 color_rules: pp.color_rules,
                 scale: pp.scale,
                 scale_overrides: pp.scale_overrides,
@@ -2793,6 +2810,7 @@ impl Actor {
                     definition: p.definition.clone(),
                     active: p.active,
                     display: p.display.clone(),
+                    format_overrides: p.format_overrides.clone(),
                     color_rules: p.color_rules.clone(),
                     scale: p.scale.clone(),
                     scale_overrides: p.scale_overrides.clone(),

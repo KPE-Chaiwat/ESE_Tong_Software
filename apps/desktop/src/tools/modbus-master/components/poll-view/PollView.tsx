@@ -27,6 +27,7 @@ import {
   usePollViewRuntime,
 } from "./context";
 import { DataCard } from "./DataCard";
+import { FormatDialog } from "./FormatDialog";
 import { OverrideDialog } from "./OverrideDialog";
 import { PollSetup } from "./PollSetup";
 import {
@@ -41,6 +42,7 @@ import {
   setupPresentationFor,
   snapViewWidth,
 } from "./poll-view.logic";
+import { RawRegistersDialog } from "./RawRegistersDialog";
 import { ScaleSection } from "./ScaleSection";
 import { StatusLine } from "./StatusLine";
 import {
@@ -362,6 +364,8 @@ function Body({
         </div>
       ) : null}
       <OverrideDialog />
+      <FormatDialog />
+      <RawRegistersDialog />
     </div>
   );
 }

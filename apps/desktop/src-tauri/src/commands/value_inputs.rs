@@ -3,8 +3,8 @@ use crate::error::{AppError, AppResult};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use shared_types::{
-    AppErrorCode, DisplaySettings, PollConfigInput, PollViewSettings, Profile, ValueColorRule,
-    PROFILE_SCHEMA_VERSION,
+    AppErrorCode, DisplaySettings, FormatOverride, PollConfigInput, PollViewSettings, Profile,
+    ValueColorRule, PROFILE_SCHEMA_VERSION,
 };
 
 fn invalid(code: AppErrorCode, field: impl Into<String>, message: impl Into<String>) -> AppError {
@@ -21,6 +21,18 @@ fn view_shape(value: &Value, code: AppErrorCode, complete: bool) -> AppResult<()
                 code,
                 "display",
                 "Choose a supported interpretation and byte/word order.",
+            )
+        })?;
+    }
+    if complete || value.get("formatOverrides").is_some() {
+        serde_json::from_value::<Vec<FormatOverride>>(
+            value.get("formatOverrides").cloned().unwrap_or(Value::Null),
+        )
+        .map_err(|_| {
+            invalid(
+                code,
+                "formatOverrides",
+                "Choose a supported format and byte/word order.",
             )
         })?;
     }
@@ -203,6 +215,8 @@ mod tests {
             json!(null),
             json!({"format":"float64"}),
             json!({"format":"other", "addressBase":0,"showAlias":true,"copyAlias":false,"swapBytes":false,"reverseWords":false}),
+            // Schema 5 shape: the format moved to formatOverrides (BE-009).
+            json!({"format":"unsigned", "addressBase":0,"showAlias":true,"copyAlias":false,"swapBytes":false,"reverseWords":false}),
         ] {
             let error = poll_view(json!({"display":display})).unwrap_err().0;
             assert_eq!(error.code, AppErrorCode::Validation);
@@ -225,11 +239,30 @@ mod tests {
             assert_eq!(error.code, AppErrorCode::Validation);
             assert_eq!(error.field, Some(format!("colorRules[0].{field}")));
         }
+        assert!(
+            poll_view(json!({"display":{"addressBase":1,"showAlias":true,"copyAlias":false}}))
+                .is_ok()
+        );
+        for overrides in [
+            json!(null),
+            json!([{"start":0,"end":1,"format":"other","swapBytes":false,"reverseWords":false}]),
+            json!([{"start":0,"end":1,"format":"float32","swapBytes":false}]),
+            json!([{"start":0,"end":1,"format":"float32","swapBytes":false,"reverseWords":false,"x":1}]),
+        ] {
+            let error = poll_view(json!({"formatOverrides":overrides}))
+                .unwrap_err()
+                .0;
+            assert_eq!(error.field.as_deref(), Some("formatOverrides"));
+            assert_eq!(error.code, AppErrorCode::Validation);
+        }
+        let ok = poll_view(json!({"formatOverrides":[{"start":0,"end":1,"format":"float32","swapBytes":false,"reverseWords":true}]}))
+            .unwrap();
+        assert_eq!(ok.format_overrides.unwrap()[0].end, 1);
         assert!(poll_view(json!({"colorRules":null})).is_err());
         assert!(poll_view(json!({"colorRules":[]})).is_ok());
         assert!(poll_view(json!({})).is_ok());
         assert_eq!(
-            profile(json!({"schemaVersion":6})).unwrap_err().0.code,
+            profile(json!({"schemaVersion":7})).unwrap_err().0.code,
             AppErrorCode::UnsupportedSchema
         );
         assert_eq!(

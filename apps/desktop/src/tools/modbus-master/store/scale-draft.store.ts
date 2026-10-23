@@ -6,6 +6,7 @@
 import { z } from "zod";
 import { createStore, type StoreApi } from "zustand/vanilla";
 import type { PollConfig, ScalePreset, ScaleSettings } from "@/shared/ipc/modbus-master.types";
+import { allSixteenBitRowsSigned, rowsOfConfig } from "../lib/format-overrides";
 import { RAW_QUICK_PICKS } from "../lib/scale-presets";
 import {
   type DivisorMode,
@@ -94,9 +95,12 @@ const draftFieldsSchema = z.object({
 const isField = (name: string): name is ScaleFieldName =>
   (SCALE_FIELDS as readonly string[]).includes(name);
 
-/** The texts of the scale a poll starts from: None, raw signed when the poll shows Signed. */
+/**
+ * The texts of the scale a poll starts from: None, raw signed when every 16-bit row of the poll is
+ * Signed (DES-009 8.1).
+ */
 export function appliedFormOf(config: PollConfig | null): ScaleForm {
-  return formFromSettings(config?.scale ?? null, config?.display.format === "signed");
+  return formFromSettings(config?.scale ?? null, allSixteenBitRowsSigned(rowsOfConfig(config)));
 }
 
 export function createScaleDraftStore(deps: ScaleDraftDeps): ScaleDraftStoreApi {

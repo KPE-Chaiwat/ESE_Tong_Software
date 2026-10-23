@@ -11,6 +11,12 @@ import type {
 } from "@/shared/ipc/modbus-master.types";
 import { toDisplayAddress } from "../lib/address";
 import type { AddressRange } from "../lib/address-ranges";
+import {
+  allSixteenBitRowsSigned,
+  type FormatRow,
+  rowsInRanges,
+  rowsOfConfig,
+} from "../lib/format-overrides";
 import { RAW_QUICK_PICKS } from "../lib/scale-presets";
 import {
   type DivisorMode,
@@ -83,6 +89,8 @@ export type OverrideDialogStoreApi = StoreApi<OverrideDialogStore>;
 
 export interface OverrideDialogDeps {
   getConfig(): PollConfig | null;
+  /** The rows of the poll (default: derived from the config); the Raw is signed pre-check reads them. */
+  getRows?(): readonly FormatRow[];
   scale: Pick<PollScaleStoreApi, "getState">;
 }
 
@@ -103,9 +111,11 @@ function emptyState(): OverrideDialogState {
   };
 }
 
-/** The form a new override starts from: the poll's scale when it has one, else Divide by 10. */
-export function initialOverrideForm(config: PollConfig | null): ScaleForm {
-  const signed = config?.display.format === "signed";
+/**
+ * The form a new override starts from: the poll's scale when it has one, else Divide by 10. `signed`
+ * pre-checks "Raw is signed" for a new scale: every 16-bit row of the selection is Signed.
+ */
+export function initialOverrideForm(config: PollConfig | null, signed = false): ScaleForm {
   if (config?.scale && config.scale.preset !== "none")
     return formFromSettings(config.scale, signed);
   return withPreset(formFromSettings(null, signed), "divide");
@@ -115,6 +125,10 @@ export function createOverrideDialogStore(deps: OverrideDialogDeps): OverrideDia
   return createStore<OverrideDialogStore>()((set, get) => {
     const base = (): AddressBase => deps.getConfig()?.display.addressBase ?? 0;
     const existing = () => deps.getConfig()?.scaleOverrides ?? [];
+    const rows = (): readonly FormatRow[] =>
+      deps.getRows ? deps.getRows() : rowsOfConfig(deps.getConfig());
+    const signedIn = (ranges: readonly AddressRange[]) =>
+      allSixteenBitRowsSigned(rowsInRanges(rows(), ranges));
 
     function editForm(form: ScaleForm, errors: ScaleErrors): void {
       set({ form, errors });
@@ -149,7 +163,7 @@ export function createOverrideDialogStore(deps: OverrideDialogDeps): OverrideDia
           open: true,
           mode: "selection",
           ranges: ranges.map((r) => ({ start: r.start, end: r.end })),
-          form: initialOverrideForm(deps.getConfig()),
+          form: initialOverrideForm(deps.getConfig(), signedIn(ranges)),
         });
         return true;
       },
@@ -165,7 +179,7 @@ export function createOverrideDialogStore(deps: OverrideDialogDeps): OverrideDia
           ranges: [{ start: address, end: address }],
           startText: shown,
           endText: shown,
-          form: initialOverrideForm(config),
+          form: initialOverrideForm(config, signedIn([{ start: address, end: address }])),
         });
       },
 
@@ -181,7 +195,7 @@ export function createOverrideDialogStore(deps: OverrideDialogDeps): OverrideDia
           ranges: [{ start: override.start, end: override.end }],
           startText: String(toDisplayAddress(override.start, base())),
           endText: String(toDisplayAddress(override.end, base())),
-          form: formFromSettings(override.scale, config.display.format === "signed"),
+          form: formFromSettings(override.scale, false),
         });
       },
 

@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { ValueColorRule } from "@/shared/bindings/ValueColorRule";
+import type { FormatOverride } from "@/shared/ipc/modbus-master.types";
 import {
   COMPARISONS,
   colorContrast,
+  firstRuleConflict,
+  formatsMetBy,
   matchRule,
   parseThreshold,
   validateRules,
+  validateRulesForOverrides,
 } from "./color-rules";
 
 const rule = (patch: Partial<ValueColorRule> = {}): ValueColorRule => ({
@@ -211,5 +215,114 @@ describe("value color rules", () => {
         "unsigned",
       ),
     ).toHaveProperty("colorRules");
+  });
+});
+
+const u64 = (start: number, end: number): FormatOverride => ({
+  start,
+  end,
+  format: "unsigned64",
+  swapBytes: false,
+  reverseWords: false,
+});
+const s64 = (start: number, end: number): FormatOverride => ({
+  ...u64(start, end),
+  format: "signed64",
+});
+const MAX64 = "18446744073709551615";
+
+describe("formatsMetBy", () => {
+  it("includes the default only where an address is uncovered", () => {
+    expect(formatsMetBy({ start: 0, end: 3 }, [u64(0, 3)])).toEqual(["unsigned64"]);
+    expect(formatsMetBy({ start: 0, end: 4 }, [u64(0, 3)])).toEqual(["unsigned", "unsigned64"]);
+    expect(formatsMetBy({ start: 4, end: 9 }, [u64(0, 3)])).toEqual(["unsigned"]);
+    expect(formatsMetBy(null, [])).toEqual(["unsigned"]);
+    expect(formatsMetBy(null, [s64(10, 13)])).toEqual(["unsigned", "signed64"]);
+    expect(formatsMetBy({ start: 5, end: 6 }, [u64(0, 3), s64(10, 13)])).toEqual(["unsigned"]);
+    expect(formatsMetBy({ start: 0, end: 13 }, [u64(0, 3), s64(4, 13)])).toEqual([
+      "unsigned64",
+      "signed64",
+    ]);
+  });
+});
+
+describe("validateRulesForOverrides (DES-009 7.3, vectors R1-R8)", () => {
+  const raw = (patch: Partial<ValueColorRule>) => rule({ source: "raw", ...patch });
+  it("R1 a 64-bit integer threshold on a range of only Unsigned64 rows", () => {
+    const r = raw({
+      range: { start: 0, end: 3 },
+      comparison: "equals",
+      threshold: MAX64,
+    });
+    expect(validateRulesForOverrides([r], [u64(0, 3)])).toEqual({});
+  });
+  it("R2 a range that also meets the default is validated under both", () => {
+    const r = raw({ range: { start: 0, end: 4 }, comparison: "equals", threshold: MAX64 });
+    expect(validateRulesForOverrides([r], [u64(0, 3)])).toEqual({});
+  });
+  it("R3 a decimal threshold on an Unsigned64 range is refused", () => {
+    const r = raw({ range: { start: 0, end: 3 }, threshold: "1.5" });
+    expect(validateRulesForOverrides([r], [u64(0, 3)])).toEqual({
+      "colorRules[0].threshold": "Enter a whole decimal number for a 64-bit integer comparison.",
+    });
+  });
+  it("R4 no range and no overrides behaves like the old Unsigned path", () => {
+    expect(validateRulesForOverrides([rule({ threshold: "1.5" })], [])).toEqual({});
+    expect(validateRulesForOverrides([rule({ threshold: "abc" })], [])).toEqual(
+      validateRules([rule({ threshold: "abc" })], "unsigned"),
+    );
+  });
+  it("R5 a rule without a range meets every override", () => {
+    const errors = validateRulesForOverrides([raw({ threshold: "1.5" })], [s64(10, 13)]);
+    expect(Object.keys(errors)).toEqual(["colorRules[0].threshold"]);
+  });
+  it("R6 a rule that does not touch the override is not checked against it", () => {
+    const r = raw({ range: { start: 20, end: 30 }, threshold: "1.5" });
+    expect(validateRulesForOverrides([r], [s64(10, 13)])).toEqual({});
+  });
+  it("R7 integer mode applies to non-Scaled sources only", () => {
+    const r = rule({
+      source: "scaled",
+      range: { start: 0, end: 3 },
+      threshold: "1.5",
+    });
+    expect(validateRulesForOverrides([r], [u64(0, 3)])).toEqual({});
+  });
+  it("R8 disabled rules are validated too", () => {
+    const r = raw({ enabled: false, range: { start: 0, end: 3 }, threshold: "1.5" });
+    expect(Object.keys(validateRulesForOverrides([r], [u64(0, 3)]))).toEqual([
+      "colorRules[0].threshold",
+    ]);
+  });
+  it("keeps the index of the failing rule and the first message of a field", () => {
+    const rules = [rule(), raw({ range: { start: 0, end: 3 }, threshold: "x" })];
+    const errors = validateRulesForOverrides(rules, [u64(0, 3)]);
+    expect(errors).toEqual({
+      "colorRules[1].threshold": "Enter a whole decimal number for a 64-bit integer comparison.",
+    });
+    // Both Unsigned (decimal) and Unsigned64 (integer) are met: the first format's message wins.
+    const both = raw({ range: { start: 0, end: 4 }, threshold: "x" });
+    expect(validateRulesForOverrides([both], [u64(0, 3)])["colorRules[0].threshold"]).toBe(
+      "Enter a finite decimal number, for example -12.5 or 1e3.",
+    );
+  });
+  it("reports other rule errors once and the rule limit", () => {
+    expect(Object.keys(validateRulesForOverrides([rule({ name: " " })], [u64(0, 3)]))).toEqual([
+      "colorRules[0].name",
+    ]);
+    expect(
+      validateRulesForOverrides(
+        Array.from({ length: 257 }, () => rule()),
+        [],
+      ),
+    ).toHaveProperty("colorRules");
+  });
+  it("firstRuleConflict names the rule and its message", () => {
+    const rules = [rule({ name: "Fine" }), raw({ name: "Flow", threshold: "1.5" })];
+    expect(firstRuleConflict(rules, [s64(0, 3)])).toEqual({
+      name: "Flow",
+      message: "Enter a whole decimal number for a 64-bit integer comparison.",
+    });
+    expect(firstRuleConflict(rules, [])).toBeNull();
   });
 });

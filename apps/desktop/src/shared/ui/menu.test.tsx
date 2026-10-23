@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { vi } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { ContextMenu, MenuButton, type MenuEntry } from "./menu";
 
 function entries(onSelect: (id: string) => void): MenuEntry[] {
@@ -489,5 +489,157 @@ describe("submenus", () => {
     );
     await user.click(screen.getByRole("menuitem", { name: "Popped-out windows" }));
     expect(screen.getByRole("menu", { name: "Popped-out windows" })).toBeInTheDocument();
+  });
+});
+
+describe("a list taller than the window (FE-010 task 07, Q-010-03)", () => {
+  const many: MenuEntry[] = Array.from({ length: 25 }, (_, i) => ({
+    kind: "item",
+    id: `e${i}`,
+    label: `Entry ${i}`,
+    onSelect: () => {},
+  }));
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+  const original = Element.prototype.scrollIntoView;
+
+  beforeEach(() => {
+    scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof original;
+  });
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+  });
+
+  it("is limited to the window height and scrolls inside itself", async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton label="Menu" entries={many}>
+        More
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    const menu = screen.getByRole("menu", { name: "Menu" });
+    // jsdom has no layout: the classes are the contract (the 283 px window is checked in the browser).
+    expect(menu).toHaveClass("max-h-[calc(100vh-8px)]", "overflow-y-auto");
+  });
+
+  it("keeps the focused entry in view on open, ArrowDown, Home and End", async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton label="Menu" entries={many}>
+        More
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(screen.getByRole("menuitem", { name: "Entry 0" })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    scrollIntoView.mockClear();
+    await user.keyboard("{End}");
+    expect(screen.getByRole("menuitem", { name: "Entry 24" })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest" });
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(
+      screen.getByRole("menuitem", { name: "Entry 24" }),
+    );
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitem", { name: "Entry 0" })).toHaveFocus();
+    expect(scrollIntoView.mock.contexts.at(-1)).toBe(
+      screen.getByRole("menuitem", { name: "Entry 0" }),
+    );
+    await user.keyboard("{ArrowUp}{Home}");
+    expect(screen.getByRole("menuitem", { name: "Entry 0" })).toHaveFocus();
+    expect(scrollIntoView).toHaveBeenCalledTimes(4);
+  });
+
+  it("a menu that fits behaves as before: same focus, same order, same choice", async () => {
+    const user = userEvent.setup();
+    const chosen = vi.fn();
+    render(
+      <MenuButton label="Menu" entries={entries(chosen)}>
+        More
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    expect(screen.getByRole("menuitemradio", { name: "Raw" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(chosen).toHaveBeenCalledWith("both");
+  });
+
+  it("works without scrollIntoView (older engines): the focus still moves", async () => {
+    Element.prototype.scrollIntoView = undefined as unknown as typeof original;
+    const user = userEvent.setup();
+    render(
+      <MenuButton label="Menu" entries={many}>
+        More
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Menu" }));
+    await user.keyboard("{End}");
+    expect(screen.getByRole("menuitem", { name: "Entry 24" })).toHaveFocus();
+  });
+
+  it("the context menu is limited the same way", () => {
+    render(
+      <ContextMenu position={{ x: 10, y: 10 }} label="Ctx" entries={many} onClose={() => {}} />,
+    );
+    expect(screen.getByRole("menu", { name: "Ctx" })).toHaveClass(
+      "max-h-[calc(100vh-8px)]",
+      "overflow-y-auto",
+    );
+  });
+});
+
+describe("sections with a heading (REV-015 m4)", () => {
+  const sections = (): MenuEntry[] => [
+    { kind: "item", id: "first", label: "First", onSelect: () => {} },
+    { kind: "heading", id: "h-a", label: "Alpha" },
+    { kind: "radio", id: "a1", label: "A one", checked: true, onSelect: () => {} },
+    { kind: "radio", id: "a2", label: "A two", checked: false, onSelect: () => {} },
+    { kind: "heading", id: "h-b", label: "Beta" },
+    { kind: "radio", id: "b1", label: "B one", checked: true, onSelect: () => {} },
+    { kind: "separator", id: "sep" },
+    { kind: "check", id: "c", label: "Check", checked: false, onSelect: () => {} },
+  ];
+
+  it("puts each heading and the entries after it in a group named by the heading", async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton label="Sections" entries={sections()}>
+        Open
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Sections" }));
+    const alpha = screen.getByRole("group", { name: "Alpha" });
+    const beta = screen.getByRole("group", { name: "Beta" });
+    expect(
+      within(alpha)
+        .getAllByRole("menuitemradio")
+        .map((el) => el.textContent),
+    ).toEqual(["A one", "A two"]);
+    expect(
+      within(beta)
+        .getAllByRole("menuitemradio")
+        .map((el) => el.textContent),
+    ).toEqual(["B one"]);
+    // entries before the first heading and after a separator stay outside every group
+    expect(screen.getByRole("menuitem", { name: "First" }).closest("[role='group']")).toBeNull();
+    expect(
+      screen.getByRole("menuitemcheckbox", { name: "Check" }).closest("[role='group']"),
+    ).toBeNull();
+  });
+
+  it("keeps the arrow-key order across the groups", async () => {
+    const user = userEvent.setup();
+    render(
+      <MenuButton label="Sections" entries={sections()}>
+        Open
+      </MenuButton>,
+    );
+    await user.click(screen.getByRole("button", { name: "Sections" }));
+    expect(screen.getByRole("menuitem", { name: "First" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}{ArrowDown}{ArrowDown}");
+    expect(screen.getByRole("menuitemradio", { name: "B one" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("menuitemcheckbox", { name: "Check" })).toHaveFocus();
   });
 });

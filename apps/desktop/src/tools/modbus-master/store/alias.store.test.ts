@@ -1,5 +1,5 @@
 import { pollConfigInput } from "@/shared/ipc/modbus-master.fake";
-import type { AliasEntry, PollConfig } from "@/shared/ipc/modbus-master.types";
+import type { AliasEntry, FormatOverride, PollConfig } from "@/shared/ipc/modbus-master.types";
 import { createToastStore, type ToastStoreApi } from "@/shared/lib/toast.store";
 import { type AliasStoreApi, createAliasStore, selectAliasAt } from "./alias.store";
 
@@ -381,5 +381,94 @@ describe("paste", () => {
     await store.getState().paste("A", 0);
     expect(sent).toHaveLength(0);
     expect(toastTexts()).toEqual(["Pasted 1 aliases."]);
+  });
+});
+
+// ---- rows with 32/64-bit groups (DES-009 8.5, vectors L1) ----
+describe("aliases on rows with groups", () => {
+  const f32 = (start: number, end: number): FormatOverride => ({
+    start,
+    end,
+    format: "float32",
+    swapBytes: false,
+    reverseWords: false,
+  });
+  /** L1: rows 0, 1, 2-3, 4-5, 6, 7, 8, 9. */
+  function withGroups(aliases: AliasEntry[] = []) {
+    make(aliases);
+    config = { ...config, formatOverrides: [f32(2, 5)] };
+    store.getState().applyFromConfig(config);
+  }
+
+  it("beginEdit on a continuation edits that register's own alias", () => {
+    withGroups([{ address: 3, alias: "Flow low" }]);
+    store.getState().beginEdit(3, "dblclick");
+    expect(store.getState().editing).toMatchObject({ address: 3, text: "Flow low" });
+  });
+
+  it("Enter moves to the next visible register, including a continuation", () => {
+    withGroups();
+    store.getState().beginEdit(1, "f2");
+    expect(store.getState().commit("enter")).toBe("next");
+    expect(store.getState().editing?.address).toBe(2);
+    expect(store.getState().commit("enter")).toBe("next");
+    expect(store.getState().editing?.address).toBe(3);
+  });
+
+  it("Shift+Enter moves to the previous row, and ends on the first", () => {
+    withGroups();
+    store.getState().beginEdit(4, "f2");
+    expect(store.getState().commit("shiftEnter")).toBe("prev");
+    expect(store.getState().editing?.address).toBe(3);
+    expect(store.getState().commit("shiftEnter")).toBe("prev");
+    expect(store.getState().editing?.address).toBe(2);
+    store.getState().cancel();
+    store.getState().beginEdit(0, "f2");
+    expect(store.getState().commit("shiftEnter")).toBe("end");
+    expect(store.getState().editing).toBeNull();
+  });
+
+  it("Enter on the last row ends", () => {
+    withGroups();
+    store.getState().beginEdit(9, "f2");
+    expect(store.getState().commit("enter")).toBe("end");
+  });
+
+  it("paste puts line i on register i: from row 1 three lines go to 1, 2 and 3", async () => {
+    withGroups();
+    await store.getState().paste(["A", "B", "C"].join(String.fromCharCode(10)), 1);
+    expect(sent.at(-1)?.aliases).toEqual([
+      { address: 1, alias: "A" },
+      { address: 2, alias: "B" },
+      { address: 3, alias: "C" },
+    ]);
+  });
+
+  it("paste from a register inside a group starts at that group's row; lines past the last row are beyond", async () => {
+    withGroups();
+    await store.getState().paste(["A", "B", "C"].join(String.fromCharCode(10)), 7);
+    expect(sent.at(-1)?.aliases).toEqual([
+      { address: 7, alias: "A" },
+      { address: 8, alias: "B" },
+      { address: 9, alias: "C" },
+    ]);
+    expect(toastTexts().at(-1)).toBe("Pasted 3 aliases.");
+    await store.getState().paste(["X", "Y", "Z"].join(String.fromCharCode(10)), 9);
+    expect(toastTexts().at(-1)).toBe("Pasted 1 aliases. 2 lines were beyond the poll range.");
+  });
+
+  it("paste outside the poll does nothing", async () => {
+    withGroups();
+    expect(await store.getState().paste("A", 50)).toBeNull();
+    expect(sent).toEqual([]);
+  });
+
+  it("clear removes the given addresses only (the other registers of a group keep theirs)", async () => {
+    withGroups([
+      { address: 2, alias: "Group" },
+      { address: 3, alias: "Second" },
+    ]);
+    await store.getState().clear([2]);
+    expect(sent.at(-1)?.aliases).toEqual([{ address: 3, alias: "Second" }]);
   });
 });

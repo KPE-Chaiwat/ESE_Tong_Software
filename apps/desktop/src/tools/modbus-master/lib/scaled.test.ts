@@ -18,14 +18,7 @@ function config(patch: Partial<Config> = {}): Config {
     scale: null,
     scaleOverrides: [],
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 100 },
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
     ...patch,
   };
 }
@@ -54,6 +47,14 @@ describe("hasAnyScale, scaleActive and scaleAvailable", () => {
     expect(scaleAvailable(fc1)).toBe(false);
     expect(createScaled(fc1)).toBe(NO_SCALE);
     expect(scaleAvailable(config({ scale: mA }))).toBe(true);
+  });
+
+  it("register polls stay scalable whatever the row formats are (DES-009 8.1)", () => {
+    // 16-bit rows are scaled; 32/64-bit group rows show n/a. Scale availability ignores formats.
+    const mixed = { ...config({ scale: mA }), formatOverrides: [] };
+    expect(scaleActive(mixed)).toBe(true);
+    expect(scaleAvailable(mixed)).toBe(true);
+    expect(effectiveValueColumns({ ...mixed, valueColumns: "both" })).toBe("both");
   });
 });
 
@@ -146,14 +147,7 @@ describe("createScaled", () => {
       const based = createScaled(
         config({
           scaleOverrides: [o1],
-          display: {
-            format: "unsigned",
-            addressBase: 1,
-            showAlias: true,
-            copyAlias: false,
-            swapBytes: false,
-            reverseWords: false,
-          },
+          display: { addressBase: 1, showAlias: true, copyAlias: false },
         }),
       )(1, 2);
       expect(based?.override?.tooltip).toBe("Scale override 1-4: Divide by 10, 1 dp, °C");
@@ -209,14 +203,7 @@ describe("createScaledFactory", () => {
       factory(
         config({
           scale: mA,
-          display: {
-            format: "unsigned",
-            addressBase: 1,
-            showAlias: true,
-            copyAlias: false,
-            swapBytes: false,
-            reverseWords: false,
-          },
+          display: { addressBase: 1, showAlias: true, copyAlias: false },
         }) as PollConfig,
       ),
     ).not.toBe(p2);

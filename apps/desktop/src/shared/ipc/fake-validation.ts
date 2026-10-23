@@ -156,3 +156,167 @@ export function checkDisplayShape(display: { addressBase: number }): string | nu
     ? null
     : `display.addressBase must be 0 or 1 (found ${display.addressBase}).`;
 }
+
+export const MAX_FORMAT_OVERRIDES = 256;
+
+const FORMAT_WIDTH: Record<string, number> = {
+  unsigned: 1,
+  signed: 1,
+  hex: 1,
+  binary: 1,
+  signed32: 2,
+  unsigned32: 2,
+  float32: 2,
+  signed64: 4,
+  unsigned64: 4,
+  float64: 4,
+};
+
+const FORMAT_LABEL: Record<string, string> = {
+  signed32: "Signed 32-bit",
+  unsigned32: "Unsigned 32-bit",
+  float32: "Float 32-bit",
+  signed64: "Signed 64-bit",
+  unsigned64: "Unsigned 64-bit",
+  float64: "Float 64-bit",
+};
+
+export interface FormatOverrideLike {
+  start: number;
+  end: number;
+  format: string;
+  swapBytes: boolean;
+  reverseWords: boolean;
+}
+
+/**
+ * `check_format_overrides` (crates/shared-types/src/view.rs, BE-009): at most 256, each range
+ * ordered, a multiple of its width and without flags on a 16-bit format, then no overlap. The list is
+ * checked sorted by `start`. Returns the exact message of the first failure, or null.
+ */
+export function checkFormatOverrides(overrides: readonly FormatOverrideLike[]): string | null {
+  if (overrides.length > MAX_FORMAT_OVERRIDES) {
+    return "A poll can have at most 256 format overrides.";
+  }
+  const sorted = [...overrides].sort((a, b) => a.start - b.start || a.end - b.end);
+  for (const o of sorted) {
+    const { start, end } = o;
+    if (start > end) {
+      return `Format override ${start}-${end}: the end address must not be before the start address.`;
+    }
+    const width = FORMAT_WIDTH[o.format] ?? 1;
+    if ((end - start + 1) % width !== 0) {
+      return `Format override ${start}-${end}: ${FORMAT_LABEL[o.format] ?? o.format} needs a multiple of ${width} registers.`;
+    }
+    if (width === 1 && (o.swapBytes || o.reverseWords)) {
+      return `Format override ${start}-${end}: byte and word order apply to 32-bit and 64-bit formats only.`;
+    }
+  }
+  for (let i = 1; i < sorted.length; i += 1) {
+    const a = sorted[i - 1] as FormatOverrideLike;
+    const b = sorted[i] as FormatOverrideLike;
+    if (b.start <= a.end) {
+      return `Format overrides ${a.start}-${a.end} and ${b.start}-${b.end} overlap.`;
+    }
+  }
+  return null;
+}
+
+/** The message of the command boundary for a malformed `formatOverrides` value. */
+export const FORMAT_OVERRIDES_SHAPE_MESSAGE = "Choose a supported format and byte/word order.";
+
+const KNOWN_FORMATS = new Set(Object.keys(FORMAT_WIDTH));
+
+/** The shape check at the command boundary (`value_inputs.rs`): every key present and typed. */
+export function checkFormatOverridesShape(value: unknown): string | null {
+  if (!Array.isArray(value)) return FORMAT_OVERRIDES_SHAPE_MESSAGE;
+  const keys = ["start", "end", "format", "swapBytes", "reverseWords"];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) return FORMAT_OVERRIDES_SHAPE_MESSAGE;
+    const o = item as Record<string, unknown>;
+    if (Object.keys(o).length !== keys.length || !keys.every((k) => k in o)) {
+      return FORMAT_OVERRIDES_SHAPE_MESSAGE;
+    }
+    const u16 = (n: unknown) => Number.isInteger(n) && (n as number) >= 0 && (n as number) <= 65535;
+    if (
+      !u16(o.start) ||
+      !u16(o.end) ||
+      typeof o.format !== "string" ||
+      !KNOWN_FORMATS.has(o.format) ||
+      typeof o.swapBytes !== "boolean" ||
+      typeof o.reverseWords !== "boolean"
+    ) {
+      return FORMAT_OVERRIDES_SHAPE_MESSAGE;
+    }
+  }
+  return null;
+}
+
+interface RuleLike {
+  name: string;
+  range: { start: number; end: number } | null;
+  source: string;
+  comparison: string;
+  threshold: string;
+  upperThreshold: string | null;
+}
+
+/** `formats_met` (crates/shared-types/src/color_rules.rs): the formats a rule range can meet. */
+function formatsMet(
+  range: { start: number; end: number } | null,
+  overrides: readonly FormatOverrideLike[],
+): string[] {
+  const lo = range ? range.start : 0;
+  const hi = range ? range.end : 65535;
+  const hits = overrides
+    .filter((o) => o.start <= hi && o.end >= lo)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  let next = lo;
+  let uncovered = false;
+  for (const o of hits) {
+    if (o.start > next) uncovered = true;
+    next = Math.max(next, o.end + 1);
+  }
+  if (next <= hi) uncovered = true;
+  const formats: string[] = uncovered ? ["unsigned"] : [];
+  for (const o of hits) if (!formats.includes(o.format)) formats.push(o.format);
+  return formats;
+}
+
+const WHOLE_NUMBER = /^[+-]?[0-9]+$/;
+export const INTEGER_THRESHOLD_SYNTAX =
+  "Enter a whole decimal number for a 64-bit integer comparison.";
+
+/**
+ * The part of `check_color_rules` that depends on the formats (BE-009): a rule that can meet a
+ * Signed or Unsigned 64-bit format with a source other than Scaled needs whole-number thresholds.
+ * Returns the field path of the first rule that fails, or null. The fake does not repeat the other
+ * rule checks: the frontend validates those before it sends.
+ */
+export function firstIntegerThresholdProblem(
+  rules: readonly RuleLike[],
+  overrides: readonly FormatOverrideLike[],
+): { index: number; field: string; message: string } | null {
+  for (const [index, rule] of rules.entries()) {
+    if (rule.comparison === "always") continue;
+    const integer = formatsMet(rule.range, overrides).some(
+      (f) => (f === "signed64" || f === "unsigned64") && rule.source !== "scaled",
+    );
+    if (!integer) continue;
+    if (!WHOLE_NUMBER.test(rule.threshold.trim())) {
+      return { index, field: `colorRules[${index}].threshold`, message: INTEGER_THRESHOLD_SYNTAX };
+    }
+    if (
+      rule.comparison === "between" &&
+      rule.upperThreshold !== null &&
+      !WHOLE_NUMBER.test(rule.upperThreshold.trim())
+    ) {
+      return {
+        index,
+        field: `colorRules[${index}].upperThreshold`,
+        message: INTEGER_THRESHOLD_SYNTAX,
+      };
+    }
+  }
+  return null;
+}

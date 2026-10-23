@@ -9,6 +9,7 @@ import {
   MAX_ALIAS_LENGTH,
   mergeAliases,
   parseAliasPaste,
+  parseAliasPasteAt,
   pasteToastText,
   splitClipboardLines,
 } from "./alias";
@@ -201,5 +202,33 @@ describe("pasteToastText", () => {
     expect(pasteToastText(5, 0, 0, true)).toBe(
       "Pasted 5 aliases. The poll has reached 2000 aliases.",
     );
+  });
+});
+
+describe("parseAliasPasteAt (one line per row, DES-009 8.5)", () => {
+  it("puts line i on the i-th address and counts the lines past the last one", () => {
+    const result = parseAliasPasteAt("A\nB\nC\nD", [1, 2, 4]);
+    expect(result.entries).toEqual([
+      { address: 1, alias: "A" },
+      { address: 2, alias: "B" },
+      { address: 4, alias: "C" },
+    ]);
+    expect(result.beyond).toBe(1);
+    expect(result.skipped).toBe(0);
+  });
+
+  it("an invalid line is skipped but still takes its row; an empty line clears", () => {
+    const result = parseAliasPasteAt(`A\n${"x".repeat(40)}\n\nD`, [10, 12, 14, 16]);
+    expect(result.entries).toEqual([
+      { address: 10, alias: "A" },
+      { address: 14, alias: "" },
+      { address: 16, alias: "D" },
+    ]);
+    expect(result.skipped).toBe(1);
+  });
+
+  it("parseAliasPaste is the same with consecutive addresses", () => {
+    expect(parseAliasPaste("A\nB", 5, 6)).toEqual(parseAliasPasteAt("A\nB", [5, 6]));
+    expect(parseAliasPaste("A\nB\nC", 5, 6).beyond).toBe(1);
   });
 });

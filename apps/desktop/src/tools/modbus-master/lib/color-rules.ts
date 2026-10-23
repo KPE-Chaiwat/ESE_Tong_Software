@@ -1,4 +1,5 @@
 import type { ValueColorRule } from "@/shared/bindings/ValueColorRule";
+import type { FormatOverride, ValueFormat } from "@/shared/ipc/modbus-master.types";
 export type Numeric = number | bigint | null;
 export const MAX_COLOR_RULES = 256;
 export const COMPARISONS = {
@@ -115,6 +116,68 @@ export function validateRules(
   });
   return errors;
 }
+/**
+ * The formats a rule range (all addresses when `null`) can meet: the default Unsigned when an
+ * address of the range has no override, then the format of each override that touches the range, in
+ * address order (DES-009 7.3, mirror of BE-009 `formats_met`). `overrides` are sorted.
+ */
+export function formatsMetBy(
+  range: { start: number; end: number } | null,
+  overrides: readonly FormatOverride[],
+): ValueFormat[] {
+  const lo = range ? range.start : 0;
+  const hi = range ? range.end : 65535;
+  const hits = overrides.filter((o) => o.start <= hi && o.end >= lo);
+  let next = lo;
+  let uncovered = false;
+  for (const o of hits) {
+    if (o.start > next) uncovered = true;
+    next = Math.max(next, o.end + 1);
+  }
+  if (next <= hi) uncovered = true;
+  const formats: ValueFormat[] = uncovered ? ["unsigned"] : [];
+  for (const o of hits) if (!formats.includes(o.format)) formats.push(o.format);
+  return formats;
+}
+
+/**
+ * Validates the rules against the formats of a prospective override list (DES-009 8.2, BE-009
+ * `check_color_rules`): each rule must be valid under every format its range can meet. Disabled rules
+ * count. The first failure of a field wins and keeps the field keys of `validateRules`.
+ */
+export function validateRulesForOverrides(
+  rules: readonly ValueColorRule[],
+  overrides: readonly FormatOverride[],
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  if (rules.length > MAX_COLOR_RULES)
+    errors.colorRules = `A poll can have at most ${MAX_COLOR_RULES} value color rules.`;
+  rules.forEach((rule, i) => {
+    for (const format of formatsMetBy(rule.range, overrides)) {
+      for (const [key, message] of Object.entries(validateRules([rule], format))) {
+        const at = key.replace("colorRules[0]", `colorRules[${i}]`);
+        if (!(at in errors)) errors[at] = message;
+      }
+    }
+  });
+  return errors;
+}
+
+/** The first message of `validateRulesForOverrides` with the name of its rule, or null when all pass. */
+export function firstRuleConflict(
+  rules: readonly ValueColorRule[],
+  overrides: readonly FormatOverride[],
+): { name: string; message: string } | null {
+  const errors = validateRulesForOverrides(rules, overrides);
+  for (const [key, message] of Object.entries(errors)) {
+    const index = /^colorRules\[(\d+)\]/.exec(key)?.[1];
+    const rule = index === undefined ? undefined : rules[Number(index)];
+    if (rule) return { name: rule.name, message };
+  }
+  const first = Object.values(errors)[0];
+  return first === undefined ? null : { name: "", message: first };
+}
+
 export interface RuleMatch {
   rule: ValueColorRule;
   description: string;

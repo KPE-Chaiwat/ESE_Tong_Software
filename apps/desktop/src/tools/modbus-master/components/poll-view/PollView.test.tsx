@@ -248,7 +248,7 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       );
     });
 
-    it("columns: Alias, Address, Raw, Scaled in this order; Scaled follows the Show setting", async () => {
+    it("columns: Alias, Address, Format, Raw, Scaled in this order; Scaled follows the Show setting", async () => {
       const h = await renderPollView({
         host,
         connect: true,
@@ -256,7 +256,7 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       });
       h.advance(200);
       const headers = screen.getAllByRole("columnheader").map((c) => c.textContent);
-      expect(headers).toEqual(["Alias", "Address (0-based)", "Raw (Unsigned)", "Scaled"]);
+      expect(headers).toEqual(["Alias", "Address (0-based)", "Format", "Raw", "Scaled"]);
       expect(screen.getByRole("columnheader", { name: "Scaled value" })).toBeInTheDocument();
     });
 
@@ -272,14 +272,7 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
         poll: {
           valueColumns: "both",
           scale: SCALE,
-          display: {
-            format: "unsigned",
-            addressBase: 0,
-            showAlias: false,
-            copyAlias: false,
-            swapBytes: false,
-            reverseWords: false,
-          },
+          display: { addressBase: 0, showAlias: false, copyAlias: false },
         },
       });
       // no values yet in manual mode: force the grid with a poll update
@@ -296,16 +289,19 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       await h.act(() => h.rt.actions.setShowAlias(false));
       expect(screen.getAllByRole("columnheader").map((c) => c.textContent)).toEqual([
         "Address (0-based)",
-        "Raw (Unsigned)",
+        "Format",
+        "Raw",
         "Scaled",
       ]);
     });
 
-    it("raw values follow the format and the address base", async () => {
+    it("raw values follow the row format and the address base", async () => {
       const h = await renderPollView({ host, connect: true });
       h.advance(200);
-      await h.act(() => h.rt.actions.setFormat("hex"));
-      expect(screen.getByRole("columnheader", { name: /Raw \(Hex\)/ })).toBeInTheDocument();
+      act(() => h.rt.stores.ui.getState().selectAll());
+      await h.act(() => h.rt.actions.setSelectedFormat("hex"));
+      // The header has no format suffix: rows differ (DES-009 3.2).
+      expect(screen.getByRole("columnheader", { name: /^Raw/ })).toBeInTheDocument();
       expect(screen.getAllByText(/^0x[0-9A-F]{4}$/).length).toBeGreaterThan(0);
       await h.act(() => h.rt.actions.setAddressBase(1));
       expect(screen.getByRole("columnheader", { name: /Address \(1-based\)/ })).toBeInTheDocument();
@@ -317,14 +313,10 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
         connect: true,
         poll: {
           definition: { slaveId: 1, function: 1, startAddress: 0, quantity: 8, scanRateMs: 100 },
-          display: {
-            format: "hex",
-            addressBase: 0,
-            showAlias: true,
-            copyAlias: false,
-            swapBytes: false,
-            reverseWords: false,
-          },
+          display: { addressBase: 0, showAlias: true, copyAlias: false },
+          formatOverrides: [
+            { start: 0, end: 7, format: "hex", swapBytes: false, reverseWords: false },
+          ],
         },
       });
       h.advance(200);
@@ -386,7 +378,9 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       const show = screen.getByRole("radiogroup", { name: "Show" });
       expect(show).toHaveAttribute("aria-disabled", "true");
       expect(show).toHaveAttribute("title", "Set a scale to show scaled values.");
-      expect(screen.getByRole("radiogroup", { name: "Raw format" })).toBeInTheDocument();
+      // The poll-wide "Raw format" control is gone: a Format… button opens the dialog (DES-009 3.5).
+      expect(screen.queryByRole("radiogroup", { name: "Raw format" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Format…" })).toBeInTheDocument();
       expect(screen.getByRole("radiogroup", { name: "Address base" })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^Show / })).not.toBeInTheDocument();
     });
@@ -416,7 +410,7 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       expect(screen.getByRole("columnheader", { name: "Scaled value" })).toBeInTheDocument();
     });
 
-    it("FC01 disables the raw format with its tooltip", async () => {
+    it("FC01 disables the Format… button with its tooltip", async () => {
       await renderPollView({
         host,
         mode: "manual",
@@ -424,9 +418,26 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
           definition: { slaveId: 1, function: 1, startAddress: 0, quantity: 8, scanRateMs: 100 },
         },
       });
-      const group = screen.getByRole("radiogroup", { name: "Raw format" });
-      expect(group).toHaveAttribute("aria-disabled", "true");
-      expect(group).toHaveAttribute("title", "Coils and discrete inputs are shown as 0 or 1.");
+      const button = screen.getByRole("button", { name: "Format…" });
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAttribute("title", "Coils and discrete inputs are shown as 0 or 1.");
+    });
+
+    it("the Format… button needs a selection or a focused row (Q-009-04)", async () => {
+      const h = await renderPollView({ host, mode: "manual" });
+      const button = screen.getByRole("button", { name: "Format…" });
+      expect(button).toHaveAttribute("aria-disabled", "true");
+      expect(button).toHaveAttribute("title", "Select rows in the table first.");
+      await h.user.click(button);
+      expect(screen.queryByRole("dialog", { name: "Format / endian" })).not.toBeInTheDocument();
+      act(() => h.rt.stores.ui.getState().click(2));
+      expect(button).not.toHaveAttribute("aria-disabled");
+      expect(button).toHaveAttribute(
+        "title",
+        "Set the format of the selected rows. Ctrl+1 to Ctrl+4 set a 16-bit format directly.",
+      );
+      await h.user.click(button);
+      expect(screen.getByRole("dialog", { name: "Format / endian" })).toBeInTheDocument();
     });
 
     it("narrow: the Show menu replaces the segmented controls and has every option", async () => {
@@ -442,11 +453,30 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
         "aria-disabled",
         "true",
       );
-      for (const name of ["Unsigned", "Signed", "Hex", "Binary", "0-based", "1-based"]) {
+      for (const name of ["0-based", "1-based"]) {
         expect(
           within(menu).getByRole("menuitemradio", { name: new RegExp(name) }),
         ).toBeInTheDocument();
       }
+      // The format entries act on the selected rows, with their shortcut hints (Q-010-01: radio
+      // items that show the format of the selection).
+      expect(within(menu).getByText("Format of selected rows")).toBeInTheDocument();
+      for (const [name, key] of [
+        ["Unsigned", "Ctrl+1"],
+        ["Signed", "Ctrl+2"],
+        ["Hex", "Ctrl+3"],
+        ["Binary", "Ctrl+4"],
+      ] as const) {
+        const item = within(menu).getByRole("menuitemradio", { name: new RegExp(`^${name}`) });
+        expect(item).toHaveTextContent(key);
+        expect(item).toHaveAttribute("aria-disabled", "true");
+        expect(item).toHaveAttribute("aria-checked", "false");
+      }
+      expect(within(menu).queryByRole("menuitem", { name: /Format \/ endian/ })).toBeNull();
+      expect(within(menu).getByRole("menuitem", { name: "More formats…" })).toHaveAttribute(
+        "title",
+        "Select rows in the table first.",
+      );
       expect(within(menu).getByRole("menuitemcheckbox", { name: "Alias column" })).toHaveAttribute(
         "aria-checked",
         "true",
@@ -456,13 +486,37 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       ).toHaveAttribute("aria-checked", "false");
     });
 
+    it("narrow: Show, Format of selected rows and Address base are three separate radio groups (REV-015 m4)", async () => {
+      const h = await renderPollView({ host, mode: "manual", width: 600 });
+      await h.user.click(screen.getByRole("button", { name: "Show Raw" }));
+      const menu = screen.getByRole("menu", { name: "Show Raw" });
+      const names = (group: string) =>
+        within(within(menu).getByRole("group", { name: group }))
+          .getAllByRole("menuitemradio")
+          .map((el) => el.textContent?.replace(/Ctrl\+\w$/, "").trim());
+      expect(names("Show")).toEqual(["Raw", "Scaled", "Both"]);
+      expect(names("Format of selected rows")).toEqual(["Unsigned", "Signed", "Hex", "Binary"]);
+      expect(names("Address base")).toEqual(["0-based", "1-based"]);
+      // every radio of the menu sits in exactly one of the three groups
+      expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(9);
+      for (const radio of within(menu).getAllByRole("menuitemradio")) {
+        expect(radio.closest("[role='group']")).not.toBeNull();
+      }
+    });
+
     it("narrow: choosing entries changes the poll's view settings, and the freshness chip moves to the line", async () => {
       const h = await renderPollView({ host, connect: true, width: 600 });
       h.advance(200);
       expect(within(statusLine()).getByText(/^Updated /)).toBeInTheDocument();
+      act(() => {
+        h.rt.stores.ui.getState().click(2);
+        h.rt.stores.ui.getState().click(3, { shift: true });
+      });
       await h.user.click(screen.getByRole("button", { name: "Show Raw" }));
-      await h.user.click(screen.getByRole("menuitemradio", { name: /Hex/ }));
-      expect(h.ipc.pollSummary(h.pollId).config.display.format).toBe("hex");
+      await h.user.click(screen.getByRole("menuitemradio", { name: /^Hex/ }));
+      expect(h.ipc.pollSummary(h.pollId).config.formatOverrides).toEqual([
+        { start: 2, end: 3, format: "hex", swapBytes: false, reverseWords: false },
+      ]);
       await h.user.click(screen.getByRole("button", { name: "Show Raw" }));
       await h.user.click(screen.getByRole("menuitemcheckbox", { name: "Alias column" }));
       expect(h.ipc.pollSummary(h.pollId).config.display.showAlias).toBe(false);
@@ -472,6 +526,62 @@ describe.each(["workspace", "native"] as const)("PollView in the %s host", (host
       await h.user.click(screen.getByRole("button", { name: "Show Raw" }));
       await h.user.click(screen.getByRole("menuitemradio", { name: /1-based/ }));
       expect(h.ipc.pollSummary(h.pollId).config.display.addressBase).toBe(1);
+    });
+  });
+
+  describe("Show menu format items (Q-010-01)", () => {
+    const checkedFormats = (menu: HTMLElement) =>
+      ["Unsigned", "Signed", "Hex", "Binary"].filter(
+        (name) =>
+          within(menu)
+            .getByRole("menuitemradio", { name: new RegExp(`^${name}`) })
+            .getAttribute("aria-checked") === "true",
+      );
+
+    it("the item of the selection's format is checked; a 32-bit or mixed selection checks none", async () => {
+      const h = await renderPollView({
+        host,
+        mode: "manual",
+        width: 600,
+        poll: {
+          formatOverrides: [
+            { start: 2, end: 3, format: "hex", swapBytes: false, reverseWords: false },
+            { start: 4, end: 5, format: "float32", swapBytes: false, reverseWords: false },
+          ],
+        },
+      });
+      const open = async () => {
+        await h.user.click(screen.getByRole("button", { name: "Show Raw" }));
+        return screen.getByRole("menu", { name: "Show Raw" });
+      };
+      // rows 2-3 are Hex
+      act(() => {
+        h.rt.stores.ui.getState().click(2);
+        h.rt.stores.ui.getState().click(3, { shift: true });
+      });
+      let menu = await open();
+      expect(checkedFormats(menu)).toEqual(["Hex"]);
+      expect(within(menu).getByRole("menuitemradio", { name: /^Hex/ })).not.toHaveAttribute(
+        "aria-disabled",
+      );
+      await h.user.keyboard("{Escape}");
+      // the Float 32-bit group row: no 16-bit item is checked
+      act(() => h.rt.stores.ui.getState().click(4));
+      menu = await open();
+      expect(checkedFormats(menu)).toEqual([]);
+      await h.user.keyboard("{Escape}");
+      // rows 2-5 mix Hex and Float 32-bit: none is checked
+      act(() => {
+        h.rt.stores.ui.getState().click(2);
+        h.rt.stores.ui.getState().click(5, { shift: true });
+      });
+      menu = await open();
+      expect(checkedFormats(menu)).toEqual([]);
+      await h.user.keyboard("{Escape}");
+      // Unsigned rows
+      act(() => h.rt.stores.ui.getState().click(7));
+      menu = await open();
+      expect(checkedFormats(menu)).toEqual(["Unsigned"]);
     });
   });
 

@@ -26,14 +26,11 @@ it.each(["unsigned", "unsigned32"] as const)(
     const h = await renderPollView({
       mode: "manual",
       poll: {
-        display: {
-          format,
-          swapBytes: false,
-          reverseWords: false,
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: false,
-        },
+        display: { addressBase: 0, showAlias: true, copyAlias: false },
+        formatOverrides:
+          format === "unsigned"
+            ? []
+            : [{ start: 0, end: 9, format, swapBytes: false, reverseWords: false }],
         colorRules: [colorRule],
       },
     });
@@ -210,7 +207,7 @@ it("keeps applied rules unchanged while a valid rules mutation is awaiting ackno
   });
   expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([]);
 });
-it("does not publish a pending rejected interpretation and leaves rules unchanged", async () => {
+it("does not publish a pending rejected format change and leaves rules unchanged", async () => {
   const h = await renderPollView({ mode: "manual", poll: { colorRules: [colorRule] } });
   const previous = h.rt.stores.poll.getState().config;
   if (!previous) throw new Error("Missing config");
@@ -218,9 +215,11 @@ it("does not publish a pending rejected interpretation and leaves rules unchange
 
   let result: Promise<boolean>;
   act(() => {
-    result = h.rt.stores.poll
-      .getState()
-      .setView({ display: { ...previous.display, format: "unsigned64" } });
+    result = h.rt.stores.poll.getState().setView({
+      formatOverrides: [
+        { start: 0, end: 3, format: "unsigned64", swapBytes: false, reverseWords: false },
+      ],
+    });
   });
   expect(h.rt.stores.poll.getState().config).toBe(previous);
   await h.act(async () => {
@@ -229,4 +228,107 @@ it("does not publish a pending rejected interpretation and leaves rules unchange
   });
   expect(h.rt.stores.poll.getState().config).toBe(previous);
   expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([colorRule]);
+});
+
+describe("rules are validated against the formats their range meets (DES-009 8.2, R1-R8)", () => {
+  const u64 = {
+    start: 0,
+    end: 3,
+    format: "unsigned64" as const,
+    swapBytes: false,
+    reverseWords: false,
+  };
+  const rawRule = (patch: Partial<ValueColorRule>): ValueColorRule => ({
+    ...colorRule,
+    name: "Flow",
+    source: "raw",
+    comparison: "equals",
+    ...patch,
+  });
+
+  async function applyRules(rule: ValueColorRule) {
+    const h = await renderPollView({ mode: "manual", poll: { formatOverrides: [u64] } });
+    act(() => {
+      h.rt.stores.ui.getState().setSetupOpen(true);
+      h.rt.stores.ui.getState().setRuleDraft({
+        entries: [{ id: "rule-1", rule }],
+        selected: "rule-1",
+        dirty: true,
+        errors: {},
+        error: null,
+      });
+    });
+    const dialog = screen.getByRole("dialog", { name: /Value color rules/ });
+    await h.user.click(within(dialog).getByRole("button", { name: "Apply rules" }));
+    return h;
+  }
+
+  it("R1 / AC 6: a 64-bit integer threshold on a range of only Unsigned64 rows applies", async () => {
+    const rule = rawRule({
+      range: { start: 0, end: 3 },
+      threshold: "18446744073709551615",
+    });
+    const h = await applyRules(rule);
+    expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([rule]);
+    expect(h.rt.stores.ui.getState().ruleDraft).toBeNull();
+  });
+
+  it("R2: a range that also meets the default format takes the integer threshold too", async () => {
+    const rule = rawRule({ range: { start: 0, end: 4 }, threshold: "5" });
+    const h = await applyRules(rule);
+    expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([rule]);
+  });
+
+  it("R3: a decimal threshold on an Unsigned64 range is refused with the field message", async () => {
+    const h = await applyRules(
+      rawRule({ range: { start: 0, end: 3 }, comparison: "greaterThan", threshold: "1.5" }),
+    );
+    expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([]);
+    expect(h.ipc.callsOf("setPollView").some(([, view]) => "colorRules" in (view as object))).toBe(
+      false,
+    );
+    expect(h.rt.stores.ui.getState().ruleDraft?.errors).toEqual({
+      "colorRules[0].threshold": "Enter a whole decimal number for a 64-bit integer comparison.",
+    });
+    expect(h.rt.stores.ui.getState().ruleDraft?.error).toBe(
+      "Rules not applied. Fix the highlighted fields.",
+    );
+  });
+
+  it("R6: a decimal threshold on a range that does not touch the override applies", async () => {
+    const rule = rawRule({
+      range: { start: 6, end: 9 },
+      comparison: "greaterThan",
+      threshold: "1.5",
+    });
+    const h = await applyRules(rule);
+    expect(h.rt.stores.poll.getState().config?.colorRules).toEqual([rule]);
+  });
+
+  it("R4: without overrides the old Unsigned behaviour is kept", async () => {
+    const h = await renderPollView({ mode: "manual" });
+    act(() => {
+      h.rt.stores.ui.getState().setSetupOpen(true);
+      h.rt.stores.ui.getState().setRuleDraft({
+        entries: [{ id: "rule-1", rule: rawRule({ comparison: "greaterThan", threshold: "1.5" }) }],
+        selected: "rule-1",
+        dirty: true,
+        errors: {},
+        error: null,
+      });
+    });
+    await h.user.click(
+      within(screen.getByRole("dialog", { name: /Value color rules/ })).getByRole("button", {
+        name: "Apply rules",
+      }),
+    );
+    expect(h.rt.stores.poll.getState().config?.colorRules).toHaveLength(1);
+  });
+
+  it("R8: a disabled rule is validated too", async () => {
+    const h = await applyRules(
+      rawRule({ enabled: false, range: { start: 0, end: 3 }, threshold: "1.5" }),
+    );
+    expect(h.rt.stores.ui.getState().ruleDraft?.errors).toHaveProperty("colorRules[0].threshold");
+  });
 });

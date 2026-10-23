@@ -393,14 +393,24 @@ pub fn validate_handoff(handoff: Option<&str>) -> Result<(), ValidationError> {
     Ok(())
 }
 
-/// Checks the complete prospective rule list.
+/// Checks the format overrides of a poll (BE-009). The input may be unsorted.
+///
+/// # Errors
+/// `field: "formatOverrides"` with the BE-009 message.
+pub fn validate_format_overrides(
+    overrides: &[shared_types::FormatOverride],
+) -> Result<(), ValidationError> {
+    shared_types::check_format_overrides(overrides).map_err(|m| invalid("formatOverrides", m))
+}
+
+/// Checks the complete prospective rule list against the prospective format overrides.
 /// # Errors
 /// The nested editor field of the first invalid rule.
 pub fn validate_color_rules(
     rules: &[shared_types::ValueColorRule],
-    format: shared_types::ValueFormat,
+    overrides: &[shared_types::FormatOverride],
 ) -> Result<(), ValidationError> {
-    shared_types::check_color_rules(rules, format).map_err(|e| ValidationError {
+    shared_types::check_color_rules(rules, overrides).map_err(|e| ValidationError {
         field: e.field,
         message: e.message,
     })

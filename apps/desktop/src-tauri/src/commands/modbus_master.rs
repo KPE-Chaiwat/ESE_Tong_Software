@@ -92,6 +92,9 @@ pub async fn mm_open_session(
         ));
     }
     let snapshot = if created {
+        // A new session (nothing loaded yet): polls start as soon as the link is up. The
+        // library default is off; a loaded profile overrides this with its own value.
+        session.set_auto_start_poll(true).await?;
         session.snapshot().await?
     } else {
         session.open(sink).await?

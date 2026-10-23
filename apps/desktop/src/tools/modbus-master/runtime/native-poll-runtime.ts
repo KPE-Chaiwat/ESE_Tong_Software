@@ -130,6 +130,7 @@ export function createNativePollRuntime(
     toasts,
     ...(options.clipboard ? { clipboard: options.clipboard } : {}),
     ...(options.createScaled ? { createScaled: options.createScaled } : {}),
+    announce: (text) => announcer.getState().announce(text),
     lockModal: () => layout.getState().lockModal(),
     canPrepareBulk: () =>
       !layout.getState().modalOpen &&

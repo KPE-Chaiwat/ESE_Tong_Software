@@ -495,6 +495,7 @@ mod tests {
                 scan_rate_ms: 1000,
             },
             display: DisplaySettings::default(),
+            format_overrides: vec![],
             color_rules: Vec::new(),
             scale: None,
             scale_overrides: vec![],

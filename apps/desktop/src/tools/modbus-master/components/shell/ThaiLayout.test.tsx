@@ -2,7 +2,8 @@
 // `key = "ย"`, `code = "KeyP"`: every key of the map of DES-002 3.1 must fire from the physical key,
 // in W1 and in a native poll window. Mirrors ShortcutMaps.test.tsx.
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { PollId } from "@/shared/ipc/modbus-master.types";
+import type { PollConfig, PollId } from "@/shared/ipc/modbus-master.types";
+import { formatAt } from "../../lib/format-overrides";
 import {
   disposeNativeHarnesses,
   type NativeHarness,
@@ -71,6 +72,10 @@ function press(key: string, code: string, mods: Mods = {}): boolean {
   });
   return event.defaultPrevented;
 }
+
+/** The format of one register of a poll (the default Unsigned when no override covers it). */
+const formatOf = (config: PollConfig, address: number) =>
+  formatAt(config.formatOverrides, address).format;
 
 const frame = (id: PollId) =>
   document.querySelector<HTMLElement>(`[data-subwindow="${id}"]`) as HTMLElement;
@@ -202,9 +207,10 @@ describe("W1 with the Thai layout", () => {
     expect(await screen.findByRole("dialog", { name: "Write · A" })).toBeVisible();
     await h.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await h.act(async () => h.rt.views.peek(a)?.stores.ui.getState().click(3));
     grid(a).focus();
     thai("Digit3", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("hex"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("hex"));
     thai("KeyB", { ctrl: true });
     await waitFor(() => expect(h.ipc.pollSummary(a).config.display.addressBase).toBe(1));
     thai("KeyA", { ctrl: true });
@@ -261,11 +267,14 @@ describe("W1 with the Thai layout", () => {
 
   it("Latin layouts are untouched: a French AZERTY Ctrl+& is Ctrl+1", async () => {
     const { a } = await connected();
+    await h.act(async () => h.rt.views.peek(a)?.stores.ui.getState().click(3));
     grid(a).focus();
     press("&", "Digit1", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("unsigned"));
+    // Unsigned on an Unsigned row changes nothing.
+    await h.act(async () => {});
+    expect(h.ipc.pollSummary(a).config.formatOverrides).toEqual([]);
     press('"', "Digit3", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("hex"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("hex"));
   });
 });
 
@@ -303,6 +312,7 @@ describe("other layouts in W1 (CHK2-R9, R10, R12)", () => {
 
   it("AZERTY: Ctrl with the digit row selects the formats without Shift", async () => {
     const { a } = await connected();
+    await h.act(async () => h.rt.views.peek(a)?.stores.ui.getState().click(3));
     grid(a).focus();
     for (const [key, code, format] of [
       ["é", "Digit2", "signed"],
@@ -311,7 +321,7 @@ describe("other layouts in W1 (CHK2-R9, R10, R12)", () => {
       ["&", "Digit1", "unsigned"],
     ] as const) {
       press(key, code, { ctrl: true });
-      await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe(format));
+      await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe(format));
     }
   });
 
@@ -362,8 +372,9 @@ describe("a native poll window with the Thai layout", () => {
     expect(await screen.findByRole("dialog", { name: "Write · Pump 2" })).toBeVisible();
     await n.user.keyboard("{Escape}");
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await n.act(async () => n.rt.view.stores.ui.getState().click(3));
     thai("Digit3", { ctrl: true });
-    await waitFor(() => expect(n.ipc.pollSummary(n.pollId).config.display.format).toBe("hex"));
+    await waitFor(() => expect(formatOf(n.ipc.pollSummary(n.pollId).config, 3)).toBe("hex"));
     thai("KeyB", { ctrl: true });
     await waitFor(() => expect(n.ipc.pollSummary(n.pollId).config.display.addressBase).toBe(1));
   });

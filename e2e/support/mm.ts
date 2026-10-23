@@ -41,6 +41,32 @@ export interface Rect {
   height: number;
 }
 
+export interface FormatOverrideSpec {
+  start: number;
+  end: number;
+  format:
+    | "unsigned"
+    | "signed"
+    | "hex"
+    | "binary"
+    | "signed32"
+    | "unsigned32"
+    | "float32"
+    | "signed64"
+    | "unsigned64"
+    | "float64";
+  swapBytes: boolean;
+  reverseWords: boolean;
+}
+
+/** A format on a range with the default byte and word order (big-endian) unless `order` says so. */
+export const fmt = (
+  start: number,
+  end: number,
+  format: FormatOverrideSpec["format"],
+  order: Partial<Pick<FormatOverrideSpec, "swapBytes" | "reverseWords">> = {},
+): FormatOverrideSpec => ({ start, end, format, swapBytes: false, reverseWords: false, ...order });
+
 export interface PollSpec {
   name: string;
   /** Function code, default 3. */
@@ -52,8 +78,10 @@ export interface PollSpec {
   /** Slave id, default 1. */
   slave?: number;
   aliases?: Array<{ address: number; alias: string }>;
-  /** Display settings patch, e.g. `{ format: "hex", addressBase: 1 }`. */
+  /** Display settings patch, e.g. `{ addressBase: 1 }`. */
   display?: Record<string, unknown>;
+  /** Per-row formats (REQ-009): inclusive protocol address ranges, sorted, non-overlapping. */
+  formatOverrides?: FormatOverrideSpec[];
   host?: "workspace" | "native";
 }
 
@@ -87,12 +115,13 @@ const ADD_POLLS = async (f: Fake, specs: PollSpec[]): Promise<number[]> => {
             scanRateMs: s.scan ?? 100,
           },
           display: {
-            format: "unsigned",
             addressBase: 0,
             showAlias: true,
             copyAlias: false,
             ...(s.display ?? {}),
           },
+          formatOverrides: s.formatOverrides ?? [],
+          colorRules: [],
           scale: null,
           scaleOverrides: [],
           valueColumns: "raw",
@@ -698,12 +727,13 @@ export class Mm {
                 scanRateMs: s.scan ?? 100,
               },
               display: {
-                format: "unsigned",
                 addressBase: 0,
                 showAlias: true,
                 copyAlias: false,
                 ...(s.display ?? {}),
               },
+              formatOverrides: s.formatOverrides ?? [],
+              colorRules: [],
               scale: null,
               scaleOverrides: [],
               valueColumns: "raw",
@@ -918,10 +948,10 @@ export const LAYOUT_SEED = (
   });
 };
 
-/** A schema 2 profile as the backend stores it (one workspace poll). */
+/** A profile as the backend stores it (current schema, one workspace poll). */
 export function profileV2(name: string, over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    schemaVersion: 2,
+    schemaVersion: 6,
     name,
     connection: { mode: "tcp", host: "127.0.0.1", port: 5020, timeoutMs: 1000 },
     autoStartPoll: true,
@@ -940,7 +970,8 @@ export function profileV2(name: string, over: Record<string, unknown> = {}): Rec
         name: "Poll 1",
         definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 1000 },
         active: true,
-        display: { format: "unsigned", addressBase: 0, showAlias: true, copyAlias: false },
+        display: { addressBase: 0, showAlias: true, copyAlias: false },
+        formatOverrides: [],
         scale: null,
         scaleOverrides: [],
         valueColumns: "raw",

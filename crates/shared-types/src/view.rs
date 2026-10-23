@@ -23,14 +23,12 @@ pub enum ValueFormat {
     Float64,
 }
 
-/// Display options of one poll.
+/// Display options of one poll (schema 6: the value format is per register range, see
+/// [`FormatOverride`]).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[ts(export)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DisplaySettings {
-    pub format: ValueFormat,
-    pub swap_bytes: bool,
-    pub reverse_words: bool,
     #[ts(type = "0 | 1")]
     pub address_base: u8,
     /// Alias column shown (default true).
@@ -42,14 +40,107 @@ pub struct DisplaySettings {
 impl Default for DisplaySettings {
     fn default() -> Self {
         Self {
-            format: ValueFormat::Unsigned,
-            swap_bytes: false,
-            reverse_words: false,
             address_base: 0,
             show_alias: true,
             copy_alias: false,
         }
     }
+}
+
+/// The value format of an inclusive range of protocol addresses (REQ-009, BE-009).
+/// `end - start + 1` is a multiple of [`format_width`]; groups are formed from `start`.
+/// Addresses without an override use the default: Unsigned, big-endian, 16-bit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FormatOverride {
+    /// First register of the first group.
+    pub start: u16,
+    /// Inclusive.
+    pub end: u16,
+    pub format: ValueFormat,
+    /// Only for 32-bit and 64-bit formats.
+    pub swap_bytes: bool,
+    /// Only for 32-bit and 64-bit formats.
+    pub reverse_words: bool,
+}
+
+/// Most format overrides one poll can have.
+pub const MAX_FORMAT_OVERRIDES: usize = 256;
+
+/// Registers per value of a format: 1, 2 or 4.
+#[must_use]
+pub fn format_width(format: ValueFormat) -> u16 {
+    match format {
+        ValueFormat::Unsigned | ValueFormat::Signed | ValueFormat::Hex | ValueFormat::Binary => 1,
+        ValueFormat::Signed32 | ValueFormat::Unsigned32 | ValueFormat::Float32 => 2,
+        ValueFormat::Signed64 | ValueFormat::Unsigned64 | ValueFormat::Float64 => 4,
+    }
+}
+
+fn format_label(format: ValueFormat) -> &'static str {
+    match format {
+        ValueFormat::Unsigned => "Unsigned",
+        ValueFormat::Signed => "Signed",
+        ValueFormat::Hex => "Hex",
+        ValueFormat::Binary => "Binary",
+        ValueFormat::Signed32 => "Signed 32-bit",
+        ValueFormat::Unsigned32 => "Unsigned 32-bit",
+        ValueFormat::Float32 => "Float 32-bit",
+        ValueFormat::Signed64 => "Signed 64-bit",
+        ValueFormat::Unsigned64 => "Unsigned 64-bit",
+        ValueFormat::Float64 => "Float 64-bit",
+    }
+}
+
+/// Sorts overrides by `start` (the stored order).
+pub fn sort_format_overrides(overrides: &mut [FormatOverride]) {
+    overrides.sort_by_key(|o| (o.start, o.end));
+}
+
+/// Checks the format overrides of one poll: at most 256, `start <= end`, a length that is
+/// a multiple of the format width, no byte/word flags on 16-bit formats, no overlaps. The
+/// input may be unsorted (it is checked in `start` order; callers store it sorted).
+///
+/// # Errors
+/// The BE-009 message of the first failing rule.
+pub fn check_format_overrides(overrides: &[FormatOverride]) -> Result<(), String> {
+    if overrides.len() > MAX_FORMAT_OVERRIDES {
+        return Err("A poll can have at most 256 format overrides.".into());
+    }
+    let mut sorted = overrides.to_vec();
+    sort_format_overrides(&mut sorted);
+    for o in &sorted {
+        let (start, end) = (o.start, o.end);
+        if start > end {
+            return Err(format!(
+                "Format override {start}-{end}: the end address must not be before the start address."
+            ));
+        }
+        let width = format_width(o.format);
+        let len = u32::from(end) - u32::from(start) + 1;
+        if len % u32::from(width) != 0 {
+            return Err(format!(
+                "Format override {start}-{end}: {} needs a multiple of {width} registers.",
+                format_label(o.format)
+            ));
+        }
+        if width == 1 && (o.swap_bytes || o.reverse_words) {
+            return Err(format!(
+                "Format override {start}-{end}: byte and word order apply to 32-bit and 64-bit formats only."
+            ));
+        }
+    }
+    for pair in sorted.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        if b.start <= a.end {
+            return Err(format!(
+                "Format overrides {}-{} and {}-{} overlap.",
+                a.start, a.end, b.start, b.end
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Scale preset (DES-003 section 2).

@@ -4,12 +4,13 @@ import { Button } from "@/shared/ui/button";
 import { Icon } from "@/shared/ui/icon";
 import { Input, Select } from "@/shared/ui/input";
 import { toProtocolAddress } from "../../lib/address";
+import { cutRangeInfo } from "../../lib/format-messages";
+import { cutGroups } from "../../lib/format-overrides";
 import { QUANTITY_LIMITS, READ_FUNCTION_LABELS, READ_FUNCTIONS } from "../../lib/functions";
 import { draftHasEdits, draftTexts, type PollDraftField } from "../../store/poll-draft.logic";
 import { wholeNumber } from "../../validation/schemas";
 import { describedBy, Field } from "../form/field";
 import { usePoll, usePollUi, usePollViewRuntime } from "./context";
-import { InterpretationSection } from "./InterpretationSection";
 import { RuleSection } from "./RuleSection";
 import { SETUP_CONTENT_ANCHOR } from "./setup-focus";
 
@@ -76,6 +77,23 @@ export function PollSetup({ scaleSection, focusName }: PollSetupProps) {
     },
   });
 
+  // Not an error and it never blocks Apply: a draft range that cuts a 32/64-bit value (DES-009 6.6).
+  const quantity = wholeNumber(texts.quantity);
+  const rangeEdited = draft?.dirty.some((f) => f === "startAddress" || f === "quantity") ?? false;
+  const cutInfo =
+    rangeEdited &&
+    (fc === 3 || fc === 4) &&
+    protocolAddress !== null &&
+    quantity !== null &&
+    quantity >= 1
+      ? cutRangeInfo(cutGroups(protocolAddress, quantity, config.formatOverrides), base)
+      : null;
+  const quantityField = field("quantity");
+  const quantityDescribedBy =
+    [quantityField["aria-describedby"], cutInfo ? `${id("quantity")}-info` : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
+
   const submit = async () => {
     const result = await actions.applySetup();
     if (!result.ok && result.firstInvalid) refs.current[result.firstInvalid]?.focus();
@@ -136,7 +154,23 @@ export function PollSetup({ scaleSection, focusName }: PollSetupProps) {
             error={errors.quantity}
             helper={`1-${maxQuantity}`}
           >
-            <Input id={id("quantity")} mono inputMode="numeric" {...field("quantity")} />
+            <Input
+              id={id("quantity")}
+              mono
+              inputMode="numeric"
+              {...quantityField}
+              aria-describedby={quantityDescribedBy}
+            />
+            {cutInfo ? (
+              <p
+                id={`${id("quantity")}-info`}
+                data-testid="cut-range-info"
+                className="mt-1 flex items-start gap-1 text-xs text-text-muted"
+              >
+                <Icon name="info" className="mt-px size-3.5 shrink-0" />
+                <span>{cutInfo}</span>
+              </p>
+            ) : null}
           </Field>
           <Field id={id("scanRateMs")} label="Scan rate (ms)" error={errors.scanRateMs}>
             <Input id={id("scanRateMs")} mono inputMode="numeric" {...field("scanRateMs")} />
@@ -162,7 +196,6 @@ export function PollSetup({ scaleSection, focusName }: PollSetupProps) {
           </div>
         </form>
       </section>
-      <InterpretationSection />
       {scaleSection}
       <RuleSection />
     </div>

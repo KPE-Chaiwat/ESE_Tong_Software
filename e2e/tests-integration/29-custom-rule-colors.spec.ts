@@ -64,7 +64,7 @@ test("custom value colors apply to live register cells and survive profile save"
 	});
 	await saveProfileAs(mm, "ColorsProfile");
 	const saved = readProfile(desktop, "ColorsProfile");
-	expect(saved.schemaVersion).toBe(5);
+	expect(saved.schemaVersion).toBe(6);
 	expect(saved.polls[0]?.colorRules[0]?.colors).toEqual(
 		profile.polls[0]?.colorRules[0]?.colors,
 	);

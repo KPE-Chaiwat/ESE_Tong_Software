@@ -49,14 +49,8 @@ async function natives(n: number) {
       {
         name: `P${i + 1}`,
         definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 10, scanRateMs: 1000 },
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: true, copyAlias: false },
+        formatOverrides: [],
         colorRules: [],
         scale: null,
         scaleOverrides: [],

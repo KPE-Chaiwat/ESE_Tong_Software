@@ -1,5 +1,5 @@
 ﻿import { vi } from "vitest";
-import type { PollConfig, ScaleOverride } from "@/shared/ipc/modbus-master.types";
+import type { FormatOverride, PollConfig, ScaleOverride } from "@/shared/ipc/modbus-master.types";
 import { presetDefaults } from "../lib/scale-presets";
 import {
   createOverrideDialogStore,
@@ -15,20 +15,22 @@ const override = (start: number, end: number): ScaleOverride => ({
   scale: divide(10),
 });
 
+const signed = (start: number, end: number): FormatOverride => ({
+  start,
+  end,
+  format: "signed",
+  swapBytes: false,
+  reverseWords: false,
+});
+
 function configOf(patch: Partial<PollConfig> = {}): PollConfig {
   return {
     pollId: 1 as PollConfig["pollId"],
     name: "Tank 1",
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
     active: true,
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -103,10 +105,43 @@ describe("open", () => {
     expect(initialOverrideForm(null)).toMatchObject({ preset: "divide" });
   });
 
-  it("starts raw signed when the poll shows Signed", () => {
-    setup(configOf({ display: { ...configOf().display, format: "signed" } }));
-    store.getState().openForSelection([{ start: 0, end: 0 }]);
+  it("starts raw signed when every 16-bit row of the selection is Signed (DES-009 8.1)", () => {
+    setup(configOf({ formatOverrides: [signed(0, 1)] }));
+    store.getState().openForSelection([{ start: 0, end: 1 }]);
     expect(store.getState().form.rawSigned).toBe(true);
+    // one Unsigned row in the selection: not pre-checked
+    store.getState().close();
+    store.getState().openForSelection([{ start: 0, end: 2 }]);
+    expect(store.getState().form.rawSigned).toBe(false);
+    // rows outside the signed override
+    store.getState().close();
+    store.getState().openForSelection([{ start: 4, end: 4 }]);
+    expect(store.getState().form.rawSigned).toBe(false);
+  });
+
+  it("group rows do not count: only group rows, or no 16-bit row, is not pre-checked", () => {
+    const f32: FormatOverride = {
+      start: 0,
+      end: 3,
+      format: "float32",
+      swapBytes: false,
+      reverseWords: false,
+    };
+    setup(configOf({ formatOverrides: [f32, signed(4, 5)] }));
+    store.getState().openForSelection([{ start: 0, end: 3 }]);
+    expect(store.getState().form.rawSigned).toBe(false);
+    store.getState().close();
+    store.getState().openForSelection([{ start: 0, end: 5 }]);
+    expect(store.getState().form.rawSigned).toBe(true);
+  });
+
+  it("[+ Add override] pre-checks from the row of its start address", () => {
+    setup(configOf({ formatOverrides: [signed(3, 3)] }));
+    store.getState().openNew(3);
+    expect(store.getState().form.rawSigned).toBe(true);
+    store.getState().close();
+    store.getState().openNew(4);
+    expect(store.getState().form.rawSigned).toBe(false);
   });
 
   it("[+ Add override] opens with Start and End in the display base", () => {

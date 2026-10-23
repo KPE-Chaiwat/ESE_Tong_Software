@@ -7,6 +7,7 @@ import {
 } from "@/shared/ipc/modbus-master.fake";
 import type {
   AddressBase,
+  FormatOverride,
   PollConfig,
   PollDefinition,
   ScaleOverride,
@@ -40,20 +41,23 @@ const poll: PollDefinition = {
 };
 const get = () => store.getState();
 
+/** A 16-bit format on every register of the poll (the old poll-wide format, now an override). */
+const row16 = (f: ValueFormat): FormatOverride => ({
+  start: poll.startAddress,
+  end: poll.startAddress + poll.quantity - 1,
+  format: f,
+  swapBytes: false,
+  reverseWords: false,
+});
+
 function config(): PollConfig {
   return {
     pollId: POLL_ID,
     name: "Tank 1",
     definition: poll,
     active: true,
-    display: {
-      format,
-      addressBase: base,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: base, showAlias: true, copyAlias: false },
+    formatOverrides: format === "unsigned" ? [] : [row16(format)],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -322,14 +326,7 @@ describe("scaled preview seam (DES-003 3.5)", () => {
         scale,
         scaleOverrides,
         definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
-        display: {
-          format: "unsigned",
-          addressBase: 0,
-          showAlias: true,
-          copyAlias: false,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 0, showAlias: true, copyAlias: false },
       });
     const divide = (divisor: number, decimals: number, unit: string): ScaleSettings => ({
       ...presetDefaults("divide"),

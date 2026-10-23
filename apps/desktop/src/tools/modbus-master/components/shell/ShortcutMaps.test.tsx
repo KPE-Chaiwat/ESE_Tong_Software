@@ -3,7 +3,8 @@
 // element that has the focus, like the browser does, and `defaultPrevented` tells whether the
 // browser default was suppressed.
 import { act, screen, waitFor, within } from "@testing-library/react";
-import type { PollId } from "@/shared/ipc/modbus-master.types";
+import type { PollConfig, PollId } from "@/shared/ipc/modbus-master.types";
+import { formatAt } from "../../lib/format-overrides";
 import { presetDefaults } from "../../lib/scale-presets";
 import { SUPPRESSED_DEFAULTS } from "../../lib/shortcuts";
 import { pollProfile, profileV2 } from "../dialogs/profile-fixtures";
@@ -44,6 +45,10 @@ function press(key: string, mods: Mods = {}): boolean {
   });
   return event.defaultPrevented;
 }
+
+/** The format of one register of a poll (the default Unsigned when no override covers it). */
+const formatOf = (config: PollConfig, address: number) =>
+  formatAt(config.formatOverrides, address).format;
 
 const frame = (id: PollId) =>
   document.querySelector<HTMLElement>(`[data-subwindow="${id}"]`) as HTMLElement;
@@ -252,17 +257,21 @@ describe("W1 in the scope of a sub-window (DES-002 3.1)", () => {
     expect(await screen.findByRole("dialog", { name: "Write · A" })).toBeVisible();
   });
 
-  it("Ctrl+1..4 set the format of this poll, Ctrl+B flips the address base", async () => {
+  it("Ctrl+1..4 set the format of the selected rows, Ctrl+B flips the address base", async () => {
     const { a } = await connected();
+    await h.act(async () => h.rt.views.peek(a)?.stores.ui.getState().click(3));
     grid(a).focus();
     press("3", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("hex"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("hex"));
+    // Only the selected row changed.
+    expect(formatOf(h.ipc.pollSummary(a).config, 2)).toBe("unsigned");
     press("4", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("binary"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("binary"));
     press("1", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("unsigned"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("unsigned"));
+    expect(h.ipc.pollSummary(a).config.formatOverrides).toEqual([]);
     press("2", { ctrl: true });
-    await waitFor(() => expect(h.ipc.pollSummary(a).config.display.format).toBe("signed"));
+    await waitFor(() => expect(formatOf(h.ipc.pollSummary(a).config, 3)).toBe("signed"));
     press("b", { ctrl: true });
     await waitFor(() => expect(h.ipc.pollSummary(a).config.display.addressBase).toBe(1));
     press("b", { ctrl: true });
@@ -451,14 +460,8 @@ describe("native poll window (DES-002 3.1, W2 column)", () => {
           {
             name: `Poll ${i + 1}`,
             definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 1, scanRateMs: 100 },
-            display: {
-              format: "unsigned",
-              addressBase: 0,
-              showAlias: true,
-              copyAlias: false,
-              swapBytes: false,
-              reverseWords: false,
-            },
+            display: { addressBase: 0, showAlias: true, copyAlias: false },
+            formatOverrides: [],
             colorRules: [],
             scale: null,
             scaleOverrides: [],
@@ -481,8 +484,13 @@ describe("native poll window (DES-002 3.1, W2 column)", () => {
 
   it("Ctrl+1..4 and Ctrl+B act on this poll", async () => {
     await open();
+    // Nothing selected and no focused row: the key does nothing.
     press("3", { ctrl: true });
-    await waitFor(() => expect(n.ipc.pollSummary(n.pollId).config.display.format).toBe("hex"));
+    await n.act(async () => {});
+    expect(n.ipc.pollSummary(n.pollId).config.formatOverrides).toEqual([]);
+    await n.act(async () => n.rt.view.stores.ui.getState().click(3));
+    press("3", { ctrl: true });
+    await waitFor(() => expect(formatOf(n.ipc.pollSummary(n.pollId).config, 3)).toBe("hex"));
     press("b", { ctrl: true });
     await waitFor(() => expect(n.ipc.pollSummary(n.pollId).config.display.addressBase).toBe(1));
   });

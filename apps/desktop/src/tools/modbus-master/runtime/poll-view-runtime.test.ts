@@ -686,14 +686,7 @@ describe("copy", () => {
       aliases: [{ address: 0, alias: "PT-201" }],
       scale: presetDefaults("current4to20"),
       valueColumns: "both",
-      display: {
-        format: "unsigned",
-        addressBase: 0,
-        showAlias: true,
-        copyAlias: true,
-        swapBytes: false,
-        reverseWords: false,
-      },
+      display: { addressBase: 0, showAlias: true, copyAlias: true },
     });
     const rt = await started(a, "workspace", { createScaled: scaled, ...extra });
     ipc.emitConnectionState("connected");
@@ -736,9 +729,9 @@ describe("copy", () => {
 
   it("copies hex values and a scaled field without a scale as empty", async () => {
     const { rt } = await twoRows({ createScaled: noScaleFactory });
-    await rt.actions.setFormat("hex");
     await rt.actions.setCopyAlias(false);
     rt.stores.ui.getState().click(1);
+    await rt.actions.setSelectedFormat("hex");
     await rt.actions.copyRows();
     expect(copied).toEqual([`1${TAB}0xFFFF${TAB}`]);
   });
@@ -911,13 +904,16 @@ describe("display settings", () => {
     const a = await addPoll("A");
     const rt = await started(a);
     await rt.actions.setValueColumns("both");
-    await rt.actions.setFormat("hex");
+    await rt.actions.applyFormatOverrides([
+      { start: 0, end: 9, format: "hex", swapBytes: false, reverseWords: false },
+    ]);
     await rt.actions.setAddressBase(1);
     await rt.actions.setShowAlias(false);
     await rt.actions.setCopyAlias(true);
     expect(ipc.pollSummary(a).config).toMatchObject({
       valueColumns: "both",
-      display: { format: "hex", addressBase: 1, showAlias: false, copyAlias: true },
+      formatOverrides: [{ start: 0, end: 9, format: "hex" }],
+      display: { addressBase: 1, showAlias: false, copyAlias: true },
     });
   });
 

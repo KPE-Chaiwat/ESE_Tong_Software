@@ -142,6 +142,9 @@ test.describe("(h) profiles, restart, migration", () => {
       const [p1, p2, p3, p4] = ids as [number, number, number, number];
       // P1: Hex and aliases
       await focusPoll(mm, p1);
+      // REQ-009: Ctrl+3 sets Hex on the selected rows, so select them all first
+      await mm.gridRow(p1, 0).click();
+      await mm.page.keyboard.press("Control+a");
       await mm.page.keyboard.press("Control+3");
       await mm.gridRow(p1, 0).locator('[data-cell="alias"]').dblclick();
       await mm.page.keyboard.type("Tank top");
@@ -187,7 +190,9 @@ test.describe("(h) profiles, restart, migration", () => {
       expect(file.schemaVersion).toBe(2);
       expect(file.polls.map((p: { name: string }) => p.name), "list order in the file").toEqual(["P4", "P1", "P2", "P3"]);
       const byName = Object.fromEntries(file.polls.map((p: { name: string }) => [p.name, p]));
-      expect(byName.P1.display.format).toBe("hex");
+      expect(byName.P1.formatOverrides).toEqual([
+        { start: 0, end: 9, format: "hex", swapBytes: false, reverseWords: false },
+      ]);
       expect(byName.P1.aliases).toEqual([{ address: 0, alias: "Tank top" }, { address: 1, alias: "Tank bottom" }]);
       expect(byName.P3.display.addressBase).toBe(1);
       expect(byName.P2.view.workspace.state).toBe("minimized");

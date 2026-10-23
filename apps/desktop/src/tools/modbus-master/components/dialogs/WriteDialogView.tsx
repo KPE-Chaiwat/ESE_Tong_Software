@@ -14,8 +14,8 @@ import { Input, Label, Select, Textarea } from "@/shared/ui/input";
 import { SegmentedControl } from "@/shared/ui/segmented";
 import { toDisplayAddress, toProtocolAddress } from "../../lib/address";
 import { aliasMap } from "../../lib/alias";
-import { isCombinedFormat } from "../../lib/combined";
 import { VALUE_FORMAT_LABELS, VALUE_FORMATS } from "../../lib/format";
+import { formatAt, formatWidth } from "../../lib/format-overrides";
 import { WRITE_FUNCTION_LABELS, WRITE_FUNCTIONS } from "../../lib/functions";
 import { splitValues } from "../../lib/parse";
 import { NO_SCALE, type ScaledProvider } from "../../lib/scaled";
@@ -118,6 +118,14 @@ export function WriteDialogView({
   const startNumber = wholeNumber(draft.address);
   const protocol = startNumber === null ? null : toProtocolAddress(startNumber, base);
   const addressValid = validation.ok || validation.errors.address === undefined;
+  // The target register is part of a 32/64-bit value: the write is still one raw 16-bit register
+  // (DES-009 8.4).
+  const combinedTarget =
+    config !== null &&
+    addressValid &&
+    protocol !== null &&
+    (fn === 6 || fn === 16) &&
+    formatWidth(formatAt(config.formatOverrides, protocol).format) > 1;
   const items = splitValues(draft.valuesText);
   const listFunction = fn === 15 || fn === 16;
   const lastAddress =
@@ -328,7 +336,7 @@ export function WriteDialogView({
           </div>
         ) : null}
 
-        {config && isCombinedFormat(config.display.format) ? (
+        {combinedTarget ? (
           <p className="text-xs text-text-muted">
             Writes send individual 16-bit registers. Combined values are not encoded.
           </p>
@@ -336,9 +344,7 @@ export function WriteDialogView({
         {fn === 6 ? (
           <div>
             <Label htmlFor={id("value")}>
-              {config && isCombinedFormat(config.display.format)
-                ? "Raw register value (16-bit)"
-                : "Value"}
+              {combinedTarget ? "Raw register value (16-bit)" : "Value"}
             </Label>
             <div className="mt-1">
               <Input

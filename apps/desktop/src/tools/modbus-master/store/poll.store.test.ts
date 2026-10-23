@@ -611,27 +611,65 @@ describe("commands", () => {
       await store.getState().setView({ aliases: [{ address: 0, alias: "Tank top" }] });
       expect(store.getState().config?.aliases).toEqual([{ address: 0, alias: "Tank top" }]);
       await store.getState().setView({
-        display: {
-          format: "hex",
-          addressBase: 1,
-          showAlias: false,
-          copyAlias: true,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: false, copyAlias: true },
       });
       expect(ipc.callsOf("setPollView").at(-1)?.[1]).toEqual({
-        display: {
-          format: "hex",
-          addressBase: 1,
-          showAlias: false,
-          copyAlias: true,
-          swapBytes: false,
-          reverseWords: false,
-        },
+        display: { addressBase: 1, showAlias: false, copyAlias: true },
       });
       // the optimistic config kept the aliases
       expect(store.getState().config?.aliases).toEqual([{ address: 0, alias: "Tank top" }]);
+    });
+
+    describe("formatOverrides", () => {
+      const f32 = {
+        start: 2,
+        end: 5,
+        format: "float32" as const,
+        swapBytes: false,
+        reverseWords: false,
+      };
+
+      it("is applied only after Rust acknowledged it, and sent alone", async () => {
+        const { a, store } = await started();
+        const held = ipc.hold("setPollView");
+        const pending = store.getState().setView({ formatOverrides: [f32] });
+        expect(store.getState().config?.formatOverrides).toEqual([]);
+        held.release();
+        expect(await pending).toBe(true);
+        expect(store.getState().config?.formatOverrides).toEqual([f32]);
+        expect(ipc.callsOf("setPollView")).toEqual([[a, { formatOverrides: [f32] }]]);
+      });
+
+      it("keeps the old list and the error when Rust rejects it", async () => {
+        const { store } = await started();
+        await store.getState().setView({ formatOverrides: [f32] });
+        ipc.failNext(
+          "setPollView",
+          new IpcError(
+            "Format override 0-2: Float 32-bit needs a multiple of 2 registers.",
+            "validation",
+            "formatOverrides",
+          ),
+        );
+        expect(await store.getState().setView({ formatOverrides: [] })).toBe(false);
+        expect(store.getState().config?.formatOverrides).toEqual([f32]);
+        expect(store.getState()).toMatchObject({
+          commandError: "Format override 0-2: Float 32-bit needs a multiple of 2 registers.",
+          commandErrorField: "formatOverrides",
+        });
+        // No toast: the Format dialog shows the message itself.
+        expect(toastTexts()).toEqual([]);
+      });
+
+      it("a newer config from the backend wins over the acknowledged copy", async () => {
+        const { a, store } = await started();
+        const held = ipc.hold("setPollView");
+        const pending = store.getState().setView({ formatOverrides: [f32] });
+        await ipc.renamePoll(a, "Newer");
+        held.release();
+        await pending;
+        expect(store.getState().config?.name).toBe("Newer");
+      });
     });
 
     it("a scale can be removed (null) and set", async () => {

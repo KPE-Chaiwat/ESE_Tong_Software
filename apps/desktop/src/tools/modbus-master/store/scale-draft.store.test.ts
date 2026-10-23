@@ -1,5 +1,5 @@
 ﻿import { vi } from "vitest";
-import type { PollConfig, ScaleSettings } from "@/shared/ipc/modbus-master.types";
+import type { FormatOverride, PollConfig, ScaleSettings } from "@/shared/ipc/modbus-master.types";
 import { presetDefaults } from "../lib/scale-presets";
 import type { ScaleDraft } from "./poll-view-ui.store";
 import {
@@ -18,14 +18,8 @@ function configOf(patch: Partial<PollConfig> = {}): PollConfig {
     name: "Tank 1",
     definition: { slaveId: 1, function: 3, startAddress: 0, quantity: 20, scanRateMs: 100 },
     active: true,
-    display: {
-      format: "unsigned",
-      addressBase: 0,
-      showAlias: true,
-      copyAlias: false,
-      swapBytes: false,
-      reverseWords: false,
-    },
+    display: { addressBase: 0, showAlias: true, copyAlias: false },
+    formatOverrides: [],
     colorRules: [],
     scale: null,
     scaleOverrides: [],
@@ -68,12 +62,30 @@ describe("initial state", () => {
     expect(persisted).toEqual([]);
   });
 
-  it("a new scale starts raw signed when the poll shows Signed (B4)", () => {
-    setup(configOf({ display: { ...configOf().display, format: "signed" } }));
+  it("a new scale starts raw signed when every 16-bit row of the poll is Signed (B4, DES-009 8.1)", () => {
+    const def = (quantity: number) => ({
+      slaveId: 1,
+      function: 3 as const,
+      startAddress: 0,
+      quantity,
+      scanRateMs: 100,
+    });
+    const over = (
+      start: number,
+      end: number,
+      format: FormatOverride["format"],
+    ): FormatOverride => ({ start, end, format, swapBytes: false, reverseWords: false });
+    const rawSigned = (quantity: number, formatOverrides: FormatOverride[]) =>
+      appliedFormOf(configOf({ definition: def(quantity), formatOverrides })).rawSigned;
+    setup(configOf({ definition: def(10), formatOverrides: [over(0, 9, "signed")] }));
     expect(form().rawSigned).toBe(true);
-    expect(
-      appliedFormOf(configOf({ display: { ...configOf().display, format: "hex" } })).rawSigned,
-    ).toBe(false);
+    expect(rawSigned(10, [over(0, 9, "hex")])).toBe(false);
+    // one Unsigned row in the poll
+    expect(rawSigned(10, [over(0, 8, "signed")])).toBe(false);
+    // 32-bit groups have no scale and do not count; a poll of only groups has no 16-bit row
+    expect(rawSigned(10, [over(0, 9, "float32")])).toBe(false);
+    expect(rawSigned(11, [over(0, 9, "float32"), over(10, 10, "signed")])).toBe(true);
+    expect(rawSigned(10, [])).toBe(false);
   });
 
   it("an applied scale is shown as texts", () => {

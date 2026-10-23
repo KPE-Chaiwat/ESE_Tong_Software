@@ -1,5 +1,6 @@
 import type {
   AddressBase,
+  PollConfig,
   ReadFunction,
   ValueFormat,
   WriteFunction,
@@ -10,6 +11,7 @@ import type { IconName } from "@/shared/ui/icon";
 import { toDisplayAddress } from "../lib/address";
 import { badResponseText, exceptionName, formatExceptionCode } from "../lib/exceptions";
 import { formatValue } from "../lib/format";
+import { formatAt, formatWidth } from "../lib/format-overrides";
 import type { ScaledMarker, ScaledProvider } from "../lib/scaled";
 import {
   type FieldErrors,
@@ -52,6 +54,19 @@ export function prefillFunction(
   if (pollFunction === 1) return 5;
   if (pollFunction === 3) return 6;
   return lastFunction;
+}
+
+/**
+ * The format the value field starts in: the 16-bit format of the target row, Unsigned for a register
+ * that is part of a 32/64-bit value, and for a coil or discrete poll (DES-009 8.4).
+ */
+export function prefillFormat(
+  config: Pick<PollConfig, "formatOverrides">,
+  prefill: Pick<WritePrefill, "address" | "pollFunction"> | undefined,
+): ValueFormat {
+  if (!prefill || prefill.pollFunction === 1 || prefill.pollFunction === 2) return "unsigned";
+  const at = formatAt(config.formatOverrides, prefill.address);
+  return formatWidth(at.format) === 1 ? at.format : "unsigned";
 }
 
 export function buildDraft(
