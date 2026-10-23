@@ -11,6 +11,13 @@ entries move into a new version section (see "Versioning and changelog" in `docs
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-23
+
+Third pre-release build: a separate Modbus Master CLI, more flexible register formats, and visible continuation rows for combined values. The Windows installer is not code-signed. Serial RTU still needs validation on real hardware.
+
+### Added
+- A separate Modbus Master CLI can read and write over TCP or RTU using function codes 01-06, 15 and 16, with JSON output, TX/RX tracing and a version command (REQ-013).
+
 ### Changed
 - Modbus Master: the register table now keeps one visible row per register for 32/64-bit values. The first row shows the decoded value and following rows show `--`, while retaining ESEfact's theme and fonts (REQ-012).
 - Modbus Master: a selected register or any length of selection can use a 32-bit or 64-bit display format. The Format dialog includes following poll registers to complete values, previews them, shows selection addresses in monospace, and explains any registers added or left 16-bit at the poll end (REQ-011).

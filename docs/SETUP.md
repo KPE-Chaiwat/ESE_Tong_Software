@@ -53,7 +53,8 @@ Optional, only to run Playwright later: `pnpm --filter @esefact/e2e install:brow
 |---|---|
 | `pnpm dev` | Starts Vite and the Tauri desktop window (hot reload). |
 | `pnpm dev:web` | Frontend only in a browser at <http://localhost:1420> (no Tauri IPC). |
-| `pnpm build` | Production build and Windows installer (NSIS) under `target\release\bundle\`. Signing is not configured in the repo. |
+| `pnpm build` | Production build and Windows installer (NSIS) under `target\release\bundle\`, including the Modbus Master CLI. Signing is not configured in the repo. |
+| `pnpm build:cli` | Standalone Modbus Master CLI at `target\release\esefact-modbus-master.exe`; also stages the installer sidecar. |
 | `pnpm build:web` | Typecheck + Vite build into `apps/desktop/dist`. |
 | `pnpm typecheck` | `tsc --noEmit` for `apps/desktop` and `e2e`. |
 | `pnpm lint` | `cargo fmt --check`, `cargo clippy -D warnings`, and Biome. |
@@ -207,7 +208,7 @@ pnpm version:check         # fails (exit 1) and lists every file that disagrees;
 3. `pnpm version:set <x.y.z>`.
 4. In `CHANGELOG.md` rename the `Unreleased` entries into a new `## [x.y.z] - YYYY-MM-DD` section directly under a fresh, empty `## [Unreleased]` heading.
 5. `pnpm check` (runs `version:check`, bindings, typecheck, lint and all tests), then commit "chore(release): vX.Y.Z" and tag `vX.Y.Z`. The tag and the compare links at the bottom of `CHANGELOG.md` (`[Unreleased]: <remote>/compare/vX.Y.Z...HEAD`) can only be added once the repository has a remote; there is none yet.
-6. `pnpm build` creates the NSIS installer; its file name and product version come from `tauri.conf.json`. Only NSIS is a target; a pre-release suffix such as `0.2.0-rc.1` is accepted by `version:set`, but check the installer name before shipping one. Signing is not configured in the repo.
+6. `pnpm build` creates the NSIS installer and the standalone Modbus Master CLI (`target\release\esefact-modbus-master.exe`). Attach both files to the next GitHub release after verification. The installer includes the CLI beside the desktop executable; it does not add the CLI to PATH. The installer file name and product version come from `tauri.conf.json`. Only NSIS is a target; a pre-release suffix such as `0.2.0-rc.1` is accepted by `version:set`, but check the installer name before shipping one. Signing is not configured in the repo.
 
 ### Writing entries
 - Group lines under `### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed` or `### Security` (only the groups that apply). Use `### Planned` under Unreleased only for approved but unstarted requirements; remove it when the work is done and write real entries instead.

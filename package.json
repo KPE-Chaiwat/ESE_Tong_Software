@@ -1,6 +1,6 @@
 {
   "name": "esefact",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "author": "tong_ese",
   "license": "MIT",
   "private": true,
@@ -12,7 +12,8 @@
   "scripts": {
     "dev": "pnpm --filter @esefact/desktop tauri dev",
     "dev:web": "pnpm --filter @esefact/desktop dev:web",
-    "build": "pnpm --filter @esefact/desktop tauri build",
+    "build": "pnpm build:cli && pnpm --filter @esefact/desktop tauri build --config src-tauri/tauri.cli.conf.json",
+    "build:cli": "node scripts/build-modbus-master-cli.mjs",
     "build:web": "pnpm --filter @esefact/desktop build:web",
     "bindings": "node scripts/gen-bindings.mjs",
     "bindings:check": "node scripts/gen-bindings.mjs --check",

@@ -10,10 +10,11 @@ members = [
   # Dev-only test tool (Modbus TCP slave simulator for QA). Not a product crate, not bundled;
   # no product crate may depend on it.
   "crates/dev-sim-slave",
+  "crates/modbus-master-cli",
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.92"
 license = "MIT"

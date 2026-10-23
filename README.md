@@ -3,7 +3,7 @@
 A Windows desktop launcher that bundles in-house industrial and network tools in one app.
 
 - **Author:** tong_ese
-- **Version:** 0.2.0 (pre-1.0, see [CHANGELOG.md](CHANGELOG.md))
+- **Version:** 0.3.0 (pre-1.0, see [CHANGELOG.md](CHANGELOG.md))
 - **License:** [MIT](LICENSE)
 - **Platform:** Windows 11 first. The code is kept portable for other operating systems later.
 
@@ -11,7 +11,7 @@ A Windows desktop launcher that bundles in-house industrial and network tools in
 
 | Tool | State |
 |---|---|
-| **Modbus Master** | Working (v0.2.0). Modbus TCP and RTU master for reading and writing registers. |
+| **Modbus Master** | Working (v0.3.0). Modbus TCP and RTU master for reading and writing registers. |
 | Modbus Slave | Planned, not started. |
 | IP Scanner | Planned, not started. |
 
@@ -27,11 +27,27 @@ A Windows desktop launcher that bundles in-house industrial and network tools in
 - Profiles: save and open the whole setup (connection, polls, layout) by name.
 - English-only UI.
 
-Known limitations of this version are listed in [CHANGELOG.md](CHANGELOG.md). In short: serial RTU has not been tested on real hardware, and the Windows installer has not been built yet.
+### Modbus Master CLI
+
+`esefact-modbus-master.exe` is a separate command-line program for one read or write at a time. It shares the Modbus protocol code with the desktop app. Run it in PowerShell from the folder containing the executable. It is not installed as a system-wide command on `PATH`.
+
+```powershell
+.\esefact-modbus-master.exe --help
+.\esefact-modbus-master.exe --version
+.\esefact-modbus-master.exe read --tcp 127.0.0.1 --port 502 --unit 1 --function 3 --address 0 --count 10
+.\esefact-modbus-master.exe write --tcp 127.0.0.1 --port 502 --unit 1 --function 6 --address 0 --values 42
+.\esefact-modbus-master.exe read --rtu COM3 --baud 19200 --unit 1 --function 4 --address 0 --count 2 --json
+```
+
+Functions 01-04 read coils or registers; 05, 06, 15 and 16 write them. Addresses are zero-based. TCP defaults to port 502; RTU defaults to 9600 baud, 8 data bits, even parity and 1 stop bit. Use `--timeout-ms`, `--trace` for TX/RX bytes, or `--json` for scripts. Errors go to stderr with a nonzero exit code. This CLI has its own executable; a future Modbus Slave CLI will be separate.
+
+Build the standalone file with `pnpm build:cli` at `target\release\esefact-modbus-master.exe`. `pnpm build` also bundles it with the ESEfact installer.
+
+Known limitations are listed in [CHANGELOG.md](CHANGELOG.md). Serial RTU has not been tested on real hardware.
 
 ## Install and run
 
-There is no ready-made installer yet. Until one is published, run ESEfact from source.
+Download the installer or standalone Modbus Master CLI from the project's GitHub Releases, or build them from source as described below.
 
 ### 1. Requirements (Windows 11)
 
@@ -76,15 +92,15 @@ Modbus Master needs a Modbus TCP slave to talk to. A test simulator is included.
 cargo run -p dev-sim-slave --bin esefact-sim-slave --
 ```
 
-Wait for the line `READY modbus=127.0.0.1:5020`, then in Modbus Master choose **Modbus TCP**, host `127.0.0.1`, port `5020`, and connect. New polls start **paused**: press **Ctrl+P** (or **Resume all**) to start reading. Stop the simulator with Ctrl+C.
+Wait for the line `READY modbus=127.0.0.1:5020`, then in Modbus Master choose **Modbus TCP**, host `127.0.0.1`, port `5020`, and connect. New polls start reading automatically. Stop the simulator with Ctrl+C.
 
-### 5. Build the Windows installer (not verified yet)
+### 5. Build the Windows installer and CLI
 
 ```powershell
 pnpm build
 ```
 
-This is configured to produce an NSIS installer under `target\release\bundle\nsis\`. It has not been run or tested yet, and it is not code-signed, so Windows SmartScreen may warn when you run it. This section will be updated after the first installer build.
+This produces an NSIS installer under `target\release\bundle\nsis\` and a standalone CLI at `target\release\esefact-modbus-master.exe`. The installer includes the CLI executable. The installer is not code-signed.
 
 ## For developers
 
@@ -100,7 +116,7 @@ pnpm check     # version check, bindings, typecheck, lint and all tests
 
 ## Version
 
-The version has one source: `[workspace.package]` in the root `Cargo.toml`. The running app shows it as "ESEfact v0.2.0" in the launcher footer and in the Modbus Master status bar. To change it use `pnpm version:set <x.y.z>`, never edit it by hand.
+The version has one source: `[workspace.package]` in the root `Cargo.toml`. The running app shows it as "ESEfact v0.3.0" in the launcher footer and in the Modbus Master status bar. The CLI reports the same version through `--version`. To change it use `pnpm version:set <x.y.z>`, never edit it by hand.
 
 ## License
 
